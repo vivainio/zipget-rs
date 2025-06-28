@@ -75,7 +75,8 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
                 "tag": "v0.24.0"
             },
             "unzipTo": "./tools",
-            "saveAs": "./downloads/bat.zip"
+            "saveAs": "./downloads/bat.zip",
+            "files": ".*\\.exe$"
         },
         {
             "github": {
@@ -98,6 +99,7 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
     - **tag** (optional): Specific release tag (defaults to latest)
   - **unzipTo** (optional): Directory where the ZIP file should be extracted
   - **saveAs** (optional): Path where the downloaded file should be saved
+  - **files** (optional): Regex pattern for files to extract from ZIP (extracts all if not specified)
 
 ## GitHub Integration
 
@@ -177,6 +179,36 @@ Keep all your tools up-to-date:
 zipget recipe my_toolchain.json --upgrade
 ```
 
+### Selective File Extraction
+
+Use the `files` field to extract only specific files from ZIP archives using regex patterns:
+
+```json
+{
+    "fetch": [
+        {
+            "url": "https://example.com/tools.zip",
+            "unzipTo": "./tools",
+            "files": ".*\\.exe$"
+        },
+        {
+            "github": {
+                "repo": "sharkdp/bat",
+                "binary": "windows"
+            },
+            "unzipTo": "./tools",
+            "files": "(bat\\.exe|LICENSE)"
+        }
+    ]
+}
+```
+
+Common regex patterns:
+- `.*\\.exe$` - Extract only .exe files
+- `.*\\.(exe|dll)$` - Extract .exe and .dll files
+- `^bin/.*` - Extract files in the bin/ directory
+- `LICENSE|README.*` - Extract LICENSE and README files
+
 ### Mixed Recipe Example
 
 ```json
@@ -191,7 +223,8 @@ zipget recipe my_toolchain.json --upgrade
                 "repo": "sharkdp/bat",
                 "binary": "windows"
             },
-            "unzipTo": "./tools"
+            "unzipTo": "./tools",
+            "files": ".*\\.exe$"
         },
         {
             "github": {

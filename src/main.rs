@@ -59,6 +59,8 @@ struct FetchItem {
     unzip_to: Option<String>,
     #[serde(rename = "saveAs")]
     save_as: Option<String>,
+    /// Optional regex pattern for files to extract from ZIP (extracts all if not specified)
+    files: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -174,7 +176,7 @@ async fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     // Extract if unzipTo is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {}", unzip_to);
-        extract_zip(&file_path, unzip_to, None)?;
+        extract_zip(&file_path, unzip_to, fetch_item.files.as_deref())?;
     }
     
     Ok(())
@@ -350,25 +352,47 @@ async fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Op
     
     println!("Found asset: {} ({} bytes)", asset.name, asset.size);
     
-    // Download the file
-    let filename = get_filename_from_url(&asset.browser_download_url);
-    let output_path = if let Some(save_as_path) = save_as {
-        Path::new(save_as_path).to_path_buf()
+    // Use caching mechanism (same as process_fetch_item)
+    let cache_dir = get_cache_dir()?;
+    let download_url = &asset.browser_download_url;
+    let filename = get_filename_from_url(download_url);
+    
+    let url_hash = format!("{:x}", md5::compute(download_url));
+    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_file_path = cache_dir.join(&cached_filename);
+    
+    let file_path = if cached_file_path.exists() {
+        println!("Found cached file: {}", cached_file_path.display());
+        cached_file_path
     } else {
-        Path::new(".").join(&filename)
+        // Download the file
+        println!("Downloading: {}", download_url);
+        download_file(download_url, &cached_file_path).await?;
+        cached_file_path
     };
     
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+    // Save as specified file if requested
+    if let Some(save_as) = save_as {
+        let save_path = Path::new(save_as);
+        if let Some(parent) = save_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        fs::copy(&file_path, save_path)
+            .with_context(|| format!("Failed to save file as: {}", save_as))?;
+        println!("Saved as: {}", save_as);
+    } else {
+        // If no save_as specified, copy to current directory with original filename
+        let output_path = Path::new(".").join(&filename);
+        fs::copy(&file_path, &output_path)
+            .with_context(|| format!("Failed to copy file to: {}", output_path.display()))?;
+        println!("Saved as: {}", output_path.display());
     }
-    
-    download_file(&asset.browser_download_url, &output_path).await?;
     
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
         println!("Extracting to: {}", unzip_to);
-        extract_zip(&output_path, unzip_to, files_pattern)?;
+        extract_zip(&file_path, unzip_to, files_pattern)?;
     }
     
     Ok(())
