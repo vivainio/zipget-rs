@@ -8,6 +8,14 @@
             "url": "https://github.com/vivainio/hashibuild/archive/refs/heads/master.zip",
             "unzipTo": "./downloads",
             "saveAs": "./downloads/hashibuild-master.zip"
+        },
+        {
+            "github": {
+                "repo": "BurntSushi/ripgrep",
+                "binary": "linux"
+            },
+            "unzipTo": "./downloads",
+            "files": "rg"
         }
     ]
 } 

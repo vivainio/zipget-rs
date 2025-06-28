@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use flate2::read::GzDecoder;
 use glob_match::glob_match;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use tar::Archive;
 use zip::ZipArchive;
 
 #[derive(Parser)]
@@ -36,10 +38,10 @@ enum Commands {
         /// Optional tag to download specific release (defaults to latest)
         #[arg(short, long)]
         tag: Option<String>,
-        /// Optional directory to extract ZIP files to
+        /// Optional directory to extract archives to (supports ZIP and tar.gz files)
         #[arg(short = 'u', long = "unzip-to")]
         unzip_to: Option<String>,
-        /// Optional glob pattern for files to extract from ZIP (extracts all if not specified)
+        /// Optional glob pattern for files to extract from archives (extracts all if not specified)
         #[arg(short = 'f', long = "files")]
         files: Option<String>,
     },
@@ -174,7 +176,7 @@ fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     // Extract if unzipTo is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {}", unzip_to);
-        extract_zip(&file_path, unzip_to, fetch_item.files.as_deref())?;
+        extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
     }
     
     Ok(())
@@ -267,6 +269,79 @@ fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) ->
         println!("Extracted {} files", extracted_count);
     }
     Ok(())
+}
+
+fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+    let file = fs::File::open(tar_path)
+        .with_context(|| format!("Failed to open tar.gz file: {}", tar_path.display()))?;
+    
+    let tar = GzDecoder::new(file);
+    let mut archive = Archive::new(tar);
+    
+    fs::create_dir_all(extract_to)
+        .with_context(|| format!("Failed to create extraction directory: {}", extract_to))?;
+    
+    let mut extracted_count = 0;
+    
+    for entry in archive.entries()
+        .with_context(|| "Failed to read tar.gz entries")? {
+        
+        let mut entry = entry
+            .with_context(|| "Failed to access tar.gz entry")?;
+        
+        let path = entry.path()
+            .with_context(|| "Failed to get entry path")?;
+        
+        let path_str = path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid UTF-8 in path"))?;
+        
+        // Check if file matches the glob pattern (if specified)
+        if let Some(pattern) = file_pattern {
+            if !glob_match(pattern, path_str) {
+                continue; // Skip files that don't match the pattern
+            }
+        }
+        
+        let outpath = Path::new(extract_to).join(&path);
+        
+        // Create parent directories if they don't exist
+        if let Some(parent) = outpath.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("Failed to create parent directory: {}", parent.display()))?;
+            }
+        }
+        
+        // Extract the entry
+        entry.unpack(&outpath)
+            .with_context(|| format!("Failed to extract file: {}", outpath.display()))?;
+        
+        extracted_count += 1;
+    }
+    
+    if let Some(pattern) = file_pattern {
+        println!("Extracted {} files matching pattern '{}'", extracted_count, pattern);
+    } else {
+        println!("Extracted {} files", extracted_count);
+    }
+    Ok(())
+}
+
+fn extract_archive(archive_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+    let filename = archive_path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    if filename.ends_with(".zip") {
+        extract_zip(archive_path, extract_to, file_pattern)
+    } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
+        extract_tar_gz(archive_path, extract_to, file_pattern)
+    } else {
+        // Try to detect by content or fall back to zip
+        println!("Warning: Unknown archive type for '{}', attempting ZIP extraction", archive_path.display());
+        extract_zip(archive_path, extract_to, file_pattern)
+    }
 }
 
 fn get_filename_from_url(url: &str) -> String {
@@ -377,7 +452,7 @@ fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
         println!("Extracting to: {}", unzip_to);
-        extract_zip(&file_path, unzip_to, files_pattern)?;
+        extract_archive(&file_path, unzip_to, files_pattern)?;
     }
     
     Ok(())

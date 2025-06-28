@@ -1,6 +1,6 @@
 # zipget-rs
 
-A Rust clone of [zipget](https://github.com/vivainio/zipget) - a tool for downloading and extracting files with intelligent caching, now with enhanced GitHub releases support.
+A Rust clone of [zipget](https://github.com/vivainio/zipget) - a tool for downloading and extracting files with intelligent caching, now with enhanced GitHub releases support and tar.gz extraction.
 
 ## Problem
 
@@ -9,6 +9,7 @@ You want to download and extract files from URLs or GitHub releases, with intell
 ## Features
 
 - **Intelligent Caching**: Files are cached using MD5 hash of the URL to avoid re-downloading
+- **Multi-Format Archive Support**: Extract both ZIP and tar.gz (.tgz) archives automatically
 - **GitHub Releases Integration**: Download latest or specific tagged releases from GitHub repositories
 - **Recipe-Based Batch Processing**: Process multiple downloads from JSON recipes
 - **Version Management**: Automatically upgrade GitHub releases to latest versions
@@ -76,7 +77,7 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
             },
             "unzipTo": "./tools",
             "saveAs": "./downloads/bat.zip",
-            "files": ".*\\.exe$"
+            "files": "*.exe"
         },
         {
             "github": {
@@ -97,9 +98,9 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
     - **repo**: Repository in "owner/repo" format
     - **binary**: Name pattern to match in release assets
     - **tag** (optional): Specific release tag (defaults to latest)
-  - **unzipTo** (optional): Directory where the ZIP file should be extracted
+  - **unzipTo** (optional): Directory where archives should be extracted (supports ZIP and tar.gz files)
   - **saveAs** (optional): Path where the downloaded file should be saved
-  - **files** (optional): Regex pattern for files to extract from ZIP (extracts all if not specified)
+  - **files** (optional): Glob pattern for files to extract from archives (extracts all if not specified)
 
 ## GitHub Integration
 
@@ -150,7 +151,7 @@ This will:
 2. **Cache Check**: Before downloading, zipget checks if the file already exists in the cache directory
 3. **GitHub API**: For GitHub releases, the tool queries the GitHub API to get download URLs
 4. **Download**: If not cached, the file is downloaded and stored in the cache directory
-5. **Extract**: If `unzipTo` is specified, the ZIP file is extracted to the target directory
+5. **Extract**: If `unzipTo` is specified, the archive is extracted to the target directory (auto-detects ZIP and tar.gz formats)
 6. **Save**: If `saveAs` is specified, the downloaded file is copied to the specified path
 
 ## Examples
@@ -181,7 +182,7 @@ zipget recipe my_toolchain.json --upgrade
 
 ### Selective File Extraction
 
-Use the `files` field to extract only specific files from ZIP archives using regex patterns:
+Use the `files` field to extract only specific files from archives using glob patterns:
 
 ```json
 {
@@ -189,7 +190,7 @@ Use the `files` field to extract only specific files from ZIP archives using reg
         {
             "url": "https://example.com/tools.zip",
             "unzipTo": "./tools",
-            "files": ".*\\.exe$"
+            "files": "*.exe"
         },
         {
             "github": {
@@ -197,17 +198,17 @@ Use the `files` field to extract only specific files from ZIP archives using reg
                 "binary": "windows"
             },
             "unzipTo": "./tools",
-            "files": "(bat\\.exe|LICENSE)"
+            "files": "{bat.exe,LICENSE*}"
         }
     ]
 }
 ```
 
-Common regex patterns:
-- `.*\\.exe$` - Extract only .exe files
-- `.*\\.(exe|dll)$` - Extract .exe and .dll files
-- `^bin/.*` - Extract files in the bin/ directory
-- `LICENSE|README.*` - Extract LICENSE and README files
+Common glob patterns:
+- `*.exe` - Extract only .exe files
+- `*.{exe,dll}` - Extract .exe and .dll files  
+- `bin/*` - Extract files in the bin/ directory
+- `{LICENSE,README*}` - Extract LICENSE and README files
 
 ### Mixed Recipe Example
 
@@ -224,7 +225,7 @@ Common regex patterns:
                 "binary": "windows"
             },
             "unzipTo": "./tools",
-            "files": ".*\\.exe$"
+            "files": "*.exe"
         },
         {
             "github": {
@@ -250,13 +251,15 @@ zipget github --help
 
 ## Dependencies
 
-- `reqwest`: HTTP client for downloading files and GitHub API
+- `ureq`: HTTP client for downloading files and GitHub API
 - `serde`: JSON serialization/deserialization  
 - `zip`: ZIP file extraction
+- `tar`: TAR archive extraction
+- `flate2`: Gzip compression/decompression for tar.gz files
 - `md5`: URL hashing for cache keys
-- `tokio`: Async runtime
 - `anyhow`: Error handling
 - `clap`: CLI argument parsing
+- `glob-match`: Pattern matching for selective file extraction
 
 ## License
 
