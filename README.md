@@ -232,17 +232,6 @@ S3 downloads use your configured AWS CLI credentials and support:
 - IAM roles (for EC2/ECS environments)
 - AWS profiles (`aws configure --profile myprofile`)
 
-### S3-Compatible Services
-
-zipget-rs works with any S3-compatible service that AWS CLI supports, including:
-- **Amazon S3** (default)
-- **MinIO** 
-- **DigitalOcean Spaces**
-- **Backblaze B2**
-- **Google Cloud Storage** (with S3 API)
-
-Configure alternative endpoints through AWS CLI configuration or environment variables.
-
 ### AWS Profile Support
 
 You can specify AWS profiles in two ways:

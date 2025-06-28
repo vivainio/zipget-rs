@@ -50,6 +50,23 @@ enum Commands {
         #[arg(short = 'f', long = "files")]
         files: Option<String>,
     },
+    /// Fetch a file from a direct URL
+    Fetch {
+        /// Direct URL to download
+        url: String,
+        /// Optional path to save the downloaded file (defaults to current directory with original filename)
+        #[arg(short = 's', long = "save-as")]
+        save_as: Option<String>,
+        /// Optional directory to extract archives to (supports ZIP and tar.gz files)
+        #[arg(short = 'u', long = "unzip-to")]
+        unzip_to: Option<String>,
+        /// Optional glob pattern for files to extract from archives (extracts all if not specified)
+        #[arg(short = 'f', long = "files")]
+        files: Option<String>,
+        /// AWS profile to use for S3 downloads
+        #[arg(short, long)]
+        profile: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -256,6 +273,9 @@ fn main() -> Result<()> {
         }
         Commands::Github { repo, binary, save_as, tag, unzip_to, files } => {
             fetch_github_release(&repo, binary.as_deref(), save_as.as_deref(), tag.as_deref(), unzip_to.as_deref(), files.as_deref())?;
+        }
+        Commands::Fetch { url, save_as, unzip_to, files, profile } => {
+            fetch_direct_url(&url, save_as.as_deref(), unzip_to.as_deref(), files.as_deref(), profile.as_deref())?;
         }
     }
     
@@ -622,6 +642,54 @@ fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&
         // Download the file
         println!("Downloading: {}", download_url);
         download_file(download_url, &cached_file_path, None)?;
+        cached_file_path
+    };
+    
+    // Save as specified file if requested
+    if let Some(save_as) = save_as {
+        let save_path = Path::new(save_as);
+        if let Some(parent) = save_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        fs::copy(&file_path, save_path)
+            .with_context(|| format!("Failed to save file as: {}", save_as))?;
+        println!("Saved as: {}", save_as);
+    } else {
+        // If no save_as specified, copy to current directory with original filename
+        let output_path = Path::new(".").join(&filename);
+        fs::copy(&file_path, &output_path)
+            .with_context(|| format!("Failed to copy file to: {}", output_path.display()))?;
+        println!("Saved as: {}", output_path.display());
+    }
+    
+    // Extract if unzip_to is specified
+    if let Some(unzip_to) = unzip_to {
+        println!("Extracting to: {}", unzip_to);
+        extract_archive(&file_path, unzip_to, files_pattern)?;
+    }
+    
+    Ok(())
+}
+
+fn fetch_direct_url(url: &str, save_as: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>, profile: Option<&str>) -> Result<()> {
+    println!("Fetching from URL: {}", url);
+    
+    // Use caching mechanism (same as fetch_github_release)
+    let cache_dir = get_cache_dir()?;
+    let filename = get_filename_from_url(url);
+    
+    let url_hash = format!("{:x}", md5::compute(url));
+    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_file_path = cache_dir.join(&cached_filename);
+    
+    let file_path = if cached_file_path.exists() {
+        println!("Found cached file: {}", cached_file_path.display());
+        cached_file_path
+    } else {
+        // Download the file
+        println!("Downloading: {}", url);
+        download_file(url, &cached_file_path, profile)?;
         cached_file_path
     };
     
