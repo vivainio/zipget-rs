@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -9,8 +9,17 @@ use zip::ZipArchive;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Recipe file path
-    recipe: String,
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Install packages from a recipe file
+    Install {
+        /// Recipe file path
+        recipe: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -37,24 +46,29 @@ struct FetchItem {
 async fn main() -> Result<()> {
     let args = Args::parse();
     
-    let recipe_content = fs::read_to_string(&args.recipe)
-        .with_context(|| format!("Failed to read recipe file: {}", args.recipe))?;
-    
-    let recipe: Recipe = serde_json::from_str(&recipe_content)
-        .with_context(|| "Failed to parse recipe JSON")?;
-    
-    // Create archive directories
-    for archive_dir in &recipe.config.archive {
-        fs::create_dir_all(archive_dir)
-            .with_context(|| format!("Failed to create archive directory: {}", archive_dir))?;
+    match args.command {
+        Commands::Install { recipe } => {
+            let recipe_content = fs::read_to_string(&recipe)
+                .with_context(|| format!("Failed to read recipe file: {}", recipe))?;
+            
+            let recipe: Recipe = serde_json::from_str(&recipe_content)
+                .with_context(|| "Failed to parse recipe JSON")?;
+            
+            // Create archive directories
+            for archive_dir in &recipe.config.archive {
+                fs::create_dir_all(archive_dir)
+                    .with_context(|| format!("Failed to create archive directory: {}", archive_dir))?;
+            }
+            
+            // Process each fetch item
+            for fetch_item in &recipe.fetch {
+                process_fetch_item(fetch_item, &recipe.config.archive).await?;
+            }
+            
+            println!("All downloads and extractions completed successfully!");
+        }
     }
     
-    // Process each fetch item
-    for fetch_item in &recipe.fetch {
-        process_fetch_item(fetch_item, &recipe.config.archive).await?;
-    }
-    
-    println!("All downloads and extractions completed successfully!");
     Ok(())
 }
 
