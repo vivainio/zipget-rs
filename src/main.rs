@@ -69,12 +69,12 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct Recipe {
     fetch: Vec<FetchItem>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct FetchItem {
     url: Option<String>,
     github: Option<GitHubFetch>,
@@ -90,7 +90,7 @@ struct FetchItem {
     profile: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct GitHubFetch {
     repo: String,
     binary: Option<String>,
@@ -236,8 +236,8 @@ fn main() -> Result<()> {
                     .with_context(|| "Failed to parse recipe JSON")?;
                 
                 // Filter items by tag if specified
-                let items_to_process: Vec<&FetchItem> = if let Some(filter_tag) = &tag {
-                    recipe.fetch.iter()
+                let items_to_process: Vec<FetchItem> = if let Some(filter_tag) = &tag {
+                    recipe.fetch.into_iter()
                         .filter(|item| {
                             item.tags.as_ref()
                                 .map(|tags| tags.contains(filter_tag))
@@ -245,7 +245,7 @@ fn main() -> Result<()> {
                         })
                         .collect()
                 } else {
-                    recipe.fetch.iter().collect()
+                    recipe.fetch
                 };
                 
                 if items_to_process.is_empty() {
@@ -263,9 +263,37 @@ fn main() -> Result<()> {
                     println!("Processing all {} items from recipe", items_to_process.len());
                 }
                 
-                // Process each fetch item
+                // Process each fetch item concurrently using threads
+                let mut handles = Vec::new();
+                
                 for fetch_item in items_to_process {
-                    process_fetch_item(fetch_item, profile.as_deref())?;
+                    let profile = profile.clone();
+                    
+                    let handle = std::thread::spawn(move || {
+                        process_fetch_item(&fetch_item, profile.as_deref())
+                    });
+                    
+                    handles.push(handle);
+                }
+                
+                // Wait for all downloads to complete and collect any errors
+                let mut errors = Vec::new();
+                for (i, handle) in handles.into_iter().enumerate() {
+                    match handle.join() {
+                        Ok(Ok(())) => {
+                            // Download succeeded
+                        }
+                        Ok(Err(e)) => {
+                            errors.push(format!("Item {}: {}", i + 1, e));
+                        }
+                        Err(_) => {
+                            errors.push(format!("Item {}: Thread panicked", i + 1));
+                        }
+                    }
+                }
+                
+                if !errors.is_empty() {
+                    return Err(anyhow::anyhow!("Some downloads failed:\n{}", errors.join("\n")));
                 }
                 
                 println!("All downloads and extractions completed successfully!");
