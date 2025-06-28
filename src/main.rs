@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use regex::Regex;
+use glob_match::glob_match;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use zip::ZipArchive;
 
@@ -40,7 +39,7 @@ enum Commands {
         /// Optional directory to extract ZIP files to
         #[arg(short = 'u', long = "unzip-to")]
         unzip_to: Option<String>,
-        /// Optional regex pattern for files to extract from ZIP (extracts all if not specified)
+        /// Optional glob pattern for files to extract from ZIP (extracts all if not specified)
         #[arg(short = 'f', long = "files")]
         files: Option<String>,
     },
@@ -59,7 +58,7 @@ struct FetchItem {
     unzip_to: Option<String>,
     #[serde(rename = "saveAs")]
     save_as: Option<String>,
-    /// Optional regex pattern for files to extract from ZIP (extracts all if not specified)
+    /// Optional glob pattern for files to extract from ZIP (extracts all if not specified)
     files: Option<String>,
 }
 
@@ -92,14 +91,13 @@ fn get_cache_dir() -> Result<std::path::PathBuf> {
     Ok(cache_dir)
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let args = Args::parse();
     
     match args.command {
         Commands::Recipe { file, upgrade } => {
             if upgrade {
-                upgrade_recipe(&file).await?;
+                upgrade_recipe(&file)?;
             } else {
                 let recipe_content = fs::read_to_string(&file)
                     .with_context(|| format!("Failed to read recipe file: {}", file))?;
@@ -109,21 +107,21 @@ async fn main() -> Result<()> {
                 
                 // Process each fetch item
                 for fetch_item in &recipe.fetch {
-                    process_fetch_item(fetch_item).await?;
+                    process_fetch_item(fetch_item)?;
                 }
                 
                 println!("All downloads and extractions completed successfully!");
             }
         }
         Commands::Github { repo, binary, save_as, tag, unzip_to, files } => {
-            fetch_github_release(&repo, binary.as_deref(), save_as.as_deref(), tag.as_deref(), unzip_to.as_deref(), files.as_deref()).await?;
+            fetch_github_release(&repo, binary.as_deref(), save_as.as_deref(), tag.as_deref(), unzip_to.as_deref(), files.as_deref())?;
         }
     }
     
     Ok(())
 }
 
-async fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
+fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     let cache_dir = get_cache_dir()?;
     
     let (download_url, filename) = if let Some(url) = &fetch_item.url {
@@ -140,7 +138,7 @@ async fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
         println!("Processing GitHub repo: {}, binary: {}", github.repo, binary_name);
         
         // Get the release download URL
-        let github_url = get_github_release_url(&github.repo, binary_name, github.tag.as_deref()).await?;
+        let github_url = get_github_release_url(&github.repo, binary_name, github.tag.as_deref())?;
         let filename = get_filename_from_url(&github_url);
         (github_url, filename)
     } else {
@@ -157,7 +155,7 @@ async fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     } else {
         // Download the file
         println!("Downloading: {}", download_url);
-        download_file(&download_url, &cached_file_path).await?;
+        download_file(&download_url, &cached_file_path)?;
         cached_file_path
     };
     
@@ -182,16 +180,13 @@ async fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     Ok(())
 }
 
-async fn download_file(url: &str, path: &Path) -> Result<()> {
-    let response = reqwest::get(url).await
+fn download_file(url: &str, path: &Path) -> Result<()> {
+    let response = ureq::get(url).call()
         .with_context(|| format!("Failed to download: {}", url))?;
     
-    if !response.status().is_success() {
+    if response.status() != 200 {
         return Err(anyhow::anyhow!("Download failed with status: {}", response.status()));
     }
-    
-    let bytes = response.bytes().await
-        .with_context(|| "Failed to read response bytes")?;
     
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -201,10 +196,11 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
     let mut file = fs::File::create(path)
         .with_context(|| format!("Failed to create file: {}", path.display()))?;
     
-    file.write_all(&bytes)
+    std::io::copy(&mut response.into_reader(), &mut file)
         .with_context(|| format!("Failed to write to file: {}", path.display()))?;
     
-    println!("Downloaded: {} ({} bytes)", path.display(), bytes.len());
+    let file_size = file.metadata()?.len();
+    println!("Downloaded: {} ({} bytes)", path.display(), file_size);
     Ok(())
 }
 
@@ -218,23 +214,15 @@ fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) ->
     fs::create_dir_all(extract_to)
         .with_context(|| format!("Failed to create extraction directory: {}", extract_to))?;
     
-    // Compile regex pattern if provided
-    let regex = if let Some(pattern) = file_pattern {
-        Some(Regex::new(pattern)
-            .with_context(|| format!("Invalid regex pattern: {}", pattern))?)
-    } else {
-        None
-    };
-    
     let mut extracted_count = 0;
     
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)
             .with_context(|| format!("Failed to access zip entry {}", i))?;
         
-        // Check if file matches the regex pattern (if specified)
-        if let Some(ref regex) = regex {
-            if !regex.is_match(file.name()) {
+        // Check if file matches the glob pattern (if specified)
+        if let Some(pattern) = file_pattern {
+            if !glob_match(pattern, file.name()) {
                 continue; // Skip files that don't match the pattern
             }
         }
@@ -313,7 +301,7 @@ fn guess_binary_name() -> String {
     }
 }
 
-async fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
+fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
     let binary_name = binary_name.unwrap_or_else(|| {
         let guessed = guess_binary_name();
         println!("No binary specified for {}, guessing: {}", repo, guessed);
@@ -328,19 +316,16 @@ async fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Op
     
     println!("Fetching release info from: {}", api_url);
     
-    let client = reqwest::Client::new();
-    let response = client
-        .get(&api_url)
-        .header("User-Agent", "zipget-rs")
-        .send()
-        .await
+    let response = ureq::get(&api_url)
+        .set("User-Agent", "zipget-rs")
+        .call()
         .with_context(|| format!("Failed to fetch release info for {}", repo))?;
     
-    if !response.status().is_success() {
+    if response.status() != 200 {
         return Err(anyhow::anyhow!("GitHub API request failed with status: {}", response.status()));
     }
     
-    let release: GitHubRelease = response.json().await
+    let release: GitHubRelease = response.into_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
     
     println!("Found release: {} ({})", release.name, release.tag_name);
@@ -367,7 +352,7 @@ async fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Op
     } else {
         // Download the file
         println!("Downloading: {}", download_url);
-        download_file(download_url, &cached_file_path).await?;
+        download_file(download_url, &cached_file_path)?;
         cached_file_path
     };
     
@@ -398,26 +383,23 @@ async fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Op
     Ok(())
 }
 
-async fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>) -> Result<String> {
+fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>) -> Result<String> {
     let api_url = if let Some(tag) = tag {
         format!("https://api.github.com/repos/{}/releases/tags/{}", repo, tag)
     } else {
         format!("https://api.github.com/repos/{}/releases/latest", repo)
     };
     
-    let client = reqwest::Client::new();
-    let response = client
-        .get(&api_url)
-        .header("User-Agent", "zipget-rs")
-        .send()
-        .await
+    let response = ureq::get(&api_url)
+        .set("User-Agent", "zipget-rs")
+        .call()
         .with_context(|| format!("Failed to fetch release info for {}", repo))?;
     
-    if !response.status().is_success() {
+    if response.status() != 200 {
         return Err(anyhow::anyhow!("GitHub API request failed with status: {}", response.status()));
     }
     
-    let release: GitHubRelease = response.json().await
+    let release: GitHubRelease = response.into_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
     
     // Find the matching asset
@@ -428,28 +410,25 @@ async fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>
     Ok(asset.browser_download_url.clone())
 }
 
-async fn get_latest_github_tag(repo: &str) -> Result<String> {
+fn get_latest_github_tag(repo: &str) -> Result<String> {
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
     
-    let client = reqwest::Client::new();
-    let response = client
-        .get(&api_url)
-        .header("User-Agent", "zipget-rs")
-        .send()
-        .await
+    let response = ureq::get(&api_url)
+        .set("User-Agent", "zipget-rs")
+        .call()
         .with_context(|| format!("Failed to fetch latest release for {}", repo))?;
     
-    if !response.status().is_success() {
+    if response.status() != 200 {
         return Err(anyhow::anyhow!("GitHub API request failed with status: {}", response.status()));
     }
     
-    let release: GitHubRelease = response.json().await
+    let release: GitHubRelease = response.into_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
     
     Ok(release.tag_name)
 }
 
-async fn upgrade_recipe(file_path: &str) -> Result<()> {
+fn upgrade_recipe(file_path: &str) -> Result<()> {
     println!("Upgrading recipe: {}", file_path);
     
     let recipe_content = fs::read_to_string(file_path)
@@ -472,7 +451,7 @@ async fn upgrade_recipe(file_path: &str) -> Result<()> {
             
             println!("Checking latest version for {}", github.repo);
             
-            match get_latest_github_tag(&github.repo).await {
+            match get_latest_github_tag(&github.repo) {
                 Ok(latest_tag) => {
                     let current_tag = github.tag.as_deref().unwrap_or("latest");
                     if github.tag.is_none() || github.tag.as_ref().unwrap() != &latest_tag {
