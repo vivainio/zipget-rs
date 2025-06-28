@@ -31,9 +31,9 @@ enum Commands {
         /// Name of the binary to download from release assets (auto-detected if not specified)
         #[arg(value_name = "BINARY")]
         binary: Option<String>,
-        /// Optional directory to save the binary (defaults to current directory)
-        #[arg(short, long)]
-        output: Option<String>,
+        /// Optional path to save the downloaded file (defaults to current directory with original filename)
+        #[arg(short = 's', long = "save-as")]
+        save_as: Option<String>,
         /// Optional tag to download specific release (defaults to latest)
         #[arg(short, long)]
         tag: Option<String>,
@@ -113,8 +113,8 @@ async fn main() -> Result<()> {
                 println!("All downloads and extractions completed successfully!");
             }
         }
-        Commands::Github { repo, binary, output, tag, unzip_to, files } => {
-            fetch_github_release(&repo, binary.as_deref(), output.as_deref(), tag.as_deref(), unzip_to.as_deref(), files.as_deref()).await?;
+        Commands::Github { repo, binary, save_as, tag, unzip_to, files } => {
+            fetch_github_release(&repo, binary.as_deref(), save_as.as_deref(), tag.as_deref(), unzip_to.as_deref(), files.as_deref()).await?;
         }
     }
     
@@ -311,7 +311,7 @@ fn guess_binary_name() -> String {
     }
 }
 
-async fn fetch_github_release(repo: &str, binary_name: Option<&str>, output_dir: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
+async fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
     let binary_name = binary_name.unwrap_or_else(|| {
         let guessed = guess_binary_name();
         println!("No binary specified for {}, guessing: {}", repo, guessed);
@@ -351,12 +351,17 @@ async fn fetch_github_release(repo: &str, binary_name: Option<&str>, output_dir:
     println!("Found asset: {} ({} bytes)", asset.name, asset.size);
     
     // Download the file
-    let output_dir = output_dir.unwrap_or(".");
     let filename = get_filename_from_url(&asset.browser_download_url);
-    let output_path = Path::new(output_dir).join(&filename);
+    let output_path = if let Some(save_as_path) = save_as {
+        Path::new(save_as_path).to_path_buf()
+    } else {
+        Path::new(".").join(&filename)
+    };
     
-    fs::create_dir_all(output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir))?;
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+    }
     
     download_file(&asset.browser_download_url, &output_path).await?;
     

@@ -53,8 +53,8 @@ zipget github sharkdp/bat windows
 # Download specific tagged release
 zipget github sharkdp/bat windows --tag v0.24.0
 
-# Save to specific directory
-zipget github BurntSushi/ripgrep windows --output ./tools
+# Save to specific file path
+zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
 ```
 
 ## Recipe Format
@@ -166,7 +166,7 @@ zipget recipe demo_recipe.json
 Download the latest ripgrep for Windows:
 
 ```bash
-zipget github BurntSushi/ripgrep windows --output ./tools
+zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
 ```
 
 ### Recipe Upgrade
