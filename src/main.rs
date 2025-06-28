@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -27,26 +28,27 @@ enum Commands {
     Github {
         /// GitHub repository in format "owner/repo"
         repo: String,
-        /// Name of the binary to download from release assets
-        binary: String,
+        /// Name of the binary to download from release assets (auto-detected if not specified)
+        #[arg(value_name = "BINARY")]
+        binary: Option<String>,
         /// Optional directory to save the binary (defaults to current directory)
         #[arg(short, long)]
         output: Option<String>,
         /// Optional tag to download specific release (defaults to latest)
         #[arg(short, long)]
         tag: Option<String>,
+        /// Optional directory to extract ZIP files to
+        #[arg(short = 'u', long = "unzip-to")]
+        unzip_to: Option<String>,
+        /// Optional regex pattern for files to extract from ZIP (extracts all if not specified)
+        #[arg(short = 'f', long = "files")]
+        files: Option<String>,
     },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Recipe {
-    config: Config,
     fetch: Vec<FetchItem>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Config {
-    archive: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -62,7 +64,7 @@ struct FetchItem {
 #[derive(Debug, Deserialize, Serialize)]
 struct GitHubFetch {
     repo: String,
-    binary: String,
+    binary: Option<String>,
     tag: Option<String>,
 }
 
@@ -80,6 +82,14 @@ struct GitHubAsset {
     size: u64,
 }
 
+fn get_cache_dir() -> Result<std::path::PathBuf> {
+    let temp_dir = std::env::temp_dir();
+    let cache_dir = temp_dir.join("zipget-cache");
+    fs::create_dir_all(&cache_dir)
+        .with_context(|| format!("Failed to create cache directory: {}", cache_dir.display()))?;
+    Ok(cache_dir)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -95,43 +105,40 @@ async fn main() -> Result<()> {
                 let recipe: Recipe = serde_json::from_str(&recipe_content)
                     .with_context(|| "Failed to parse recipe JSON")?;
                 
-                // Create archive directories
-                for archive_dir in &recipe.config.archive {
-                    fs::create_dir_all(archive_dir)
-                        .with_context(|| format!("Failed to create archive directory: {}", archive_dir))?;
-                }
-                
                 // Process each fetch item
                 for fetch_item in &recipe.fetch {
-                    process_fetch_item(fetch_item, &recipe.config.archive).await?;
+                    process_fetch_item(fetch_item).await?;
                 }
                 
                 println!("All downloads and extractions completed successfully!");
             }
         }
-        Commands::Github { repo, binary, output, tag } => {
-            if let Some(tag_name) = &tag {
-                println!("Fetching release {} for {}", tag_name, repo);
-            } else {
-                println!("Fetching latest release for {}", repo);
-            }
-            fetch_github_release(&repo, &binary, output.as_deref(), tag.as_deref()).await?;
+        Commands::Github { repo, binary, output, tag, unzip_to, files } => {
+            fetch_github_release(&repo, binary.as_deref(), output.as_deref(), tag.as_deref(), unzip_to.as_deref(), files.as_deref()).await?;
         }
     }
     
     Ok(())
 }
 
-async fn process_fetch_item(fetch_item: &FetchItem, archive_dirs: &[String]) -> Result<()> {
+async fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
+    let cache_dir = get_cache_dir()?;
+    
     let (download_url, filename) = if let Some(url) = &fetch_item.url {
         println!("Processing URL: {}", url);
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
     } else if let Some(github) = &fetch_item.github {
-        println!("Processing GitHub repo: {}, binary: {}", github.repo, github.binary);
+        let binary_name = github.binary.as_deref().unwrap_or_else(|| {
+            let guessed = guess_binary_name();
+            println!("No binary specified for {}, guessing: {}", github.repo, guessed);
+            Box::leak(guessed.into_boxed_str())
+        });
+        
+        println!("Processing GitHub repo: {}, binary: {}", github.repo, binary_name);
         
         // Get the release download URL
-        let github_url = get_github_release_url(&github.repo, &github.binary, github.tag.as_deref()).await?;
+        let github_url = get_github_release_url(&github.repo, binary_name, github.tag.as_deref()).await?;
         let filename = get_filename_from_url(&github_url);
         (github_url, filename)
     } else {
@@ -140,28 +147,16 @@ async fn process_fetch_item(fetch_item: &FetchItem, archive_dirs: &[String]) -> 
     
     let url_hash = format!("{:x}", md5::compute(&download_url));
     let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_file_path = cache_dir.join(&cached_filename);
     
-    let mut cached_file_path = None;
-    
-    // Check if file exists in any archive directory
-    for archive_dir in archive_dirs {
-        let potential_path = Path::new(archive_dir).join(&cached_filename);
-        if potential_path.exists() {
-            println!("Found cached file: {}", potential_path.display());
-            cached_file_path = Some(potential_path);
-            break;
-        }
-    }
-    
-    let file_path = if let Some(cached_path) = cached_file_path {
-        cached_path
+    let file_path = if cached_file_path.exists() {
+        println!("Found cached file: {}", cached_file_path.display());
+        cached_file_path
     } else {
         // Download the file
         println!("Downloading: {}", download_url);
-        let archive_dir = &archive_dirs[0]; // Use first archive directory
-        let download_path = Path::new(archive_dir).join(&cached_filename);
-        download_file(&download_url, &download_path).await?;
-        download_path
+        download_file(&download_url, &cached_file_path).await?;
+        cached_file_path
     };
     
     // Save as specified file if requested
@@ -179,7 +174,7 @@ async fn process_fetch_item(fetch_item: &FetchItem, archive_dirs: &[String]) -> 
     // Extract if unzipTo is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {}", unzip_to);
-        extract_zip(&file_path, unzip_to)?;
+        extract_zip(&file_path, unzip_to, None)?;
     }
     
     Ok(())
@@ -211,7 +206,7 @@ async fn download_file(url: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn extract_zip(zip_path: &Path, extract_to: &str) -> Result<()> {
+fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
     let file = fs::File::open(zip_path)
         .with_context(|| format!("Failed to open zip file: {}", zip_path.display()))?;
     
@@ -221,9 +216,26 @@ fn extract_zip(zip_path: &Path, extract_to: &str) -> Result<()> {
     fs::create_dir_all(extract_to)
         .with_context(|| format!("Failed to create extraction directory: {}", extract_to))?;
     
+    // Compile regex pattern if provided
+    let regex = if let Some(pattern) = file_pattern {
+        Some(Regex::new(pattern)
+            .with_context(|| format!("Invalid regex pattern: {}", pattern))?)
+    } else {
+        None
+    };
+    
+    let mut extracted_count = 0;
+    
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)
             .with_context(|| format!("Failed to access zip entry {}", i))?;
+        
+        // Check if file matches the regex pattern (if specified)
+        if let Some(ref regex) = regex {
+            if !regex.is_match(file.name()) {
+                continue; // Skip files that don't match the pattern
+            }
+        }
         
         let outpath = Path::new(extract_to).join(file.mangled_name());
         
@@ -255,9 +267,15 @@ fn extract_zip(zip_path: &Path, extract_to: &str) -> Result<()> {
                 fs::set_permissions(&outpath, fs::Permissions::from_mode(mode))?;
             }
         }
+        
+        extracted_count += 1;
     }
     
-    println!("Extracted {} files", archive.len());
+    if let Some(pattern) = file_pattern {
+        println!("Extracted {} files matching pattern '{}'", extracted_count, pattern);
+    } else {
+        println!("Extracted {} files", extracted_count);
+    }
     Ok(())
 }
 
@@ -268,7 +286,38 @@ fn get_filename_from_url(url: &str) -> String {
         .to_string()
 }
 
-async fn fetch_github_release(repo: &str, binary_name: &str, output_dir: Option<&str>, tag: Option<&str>) -> Result<()> {
+fn guess_binary_name() -> String {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    
+    match (os, arch) {
+        ("windows", "x86_64") => "windows".to_string(),
+        ("windows", "x86") => "win32".to_string(),
+        ("windows", "aarch64") => "windows-arm64".to_string(),
+        ("linux", "x86_64") => "linux".to_string(),
+        ("linux", "aarch64") => "linux-arm64".to_string(),
+        ("linux", "x86") => "linux-i386".to_string(),
+        ("macos", "x86_64") => "macos".to_string(),
+        ("macos", "aarch64") => "macos-arm64".to_string(),
+        _ => {
+            // Fallback: try common patterns
+            match os {
+                "windows" => "windows".to_string(),
+                "linux" => "linux".to_string(),
+                "macos" => "macos".to_string(),
+                _ => "x86_64".to_string(), // Last resort
+            }
+        }
+    }
+}
+
+async fn fetch_github_release(repo: &str, binary_name: Option<&str>, output_dir: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
+    let binary_name = binary_name.unwrap_or_else(|| {
+        let guessed = guess_binary_name();
+        println!("No binary specified for {}, guessing: {}", repo, guessed);
+        Box::leak(guessed.into_boxed_str())
+    });
+
     let api_url = if let Some(tag) = tag {
         format!("https://api.github.com/repos/{}/releases/tags/{}", repo, tag)
     } else {
@@ -301,20 +350,22 @@ async fn fetch_github_release(repo: &str, binary_name: &str, output_dir: Option<
     
     println!("Found asset: {} ({} bytes)", asset.name, asset.size);
     
-    // Determine output path
-    let output_path = if let Some(dir) = output_dir {
-        fs::create_dir_all(dir)
-            .with_context(|| format!("Failed to create output directory: {}", dir))?;
-        Path::new(dir).join(&asset.name)
-    } else {
-        Path::new(&asset.name).to_path_buf()
-    };
+    // Download the file
+    let output_dir = output_dir.unwrap_or(".");
+    let filename = get_filename_from_url(&asset.browser_download_url);
+    let output_path = Path::new(output_dir).join(&filename);
     
-    // Download the asset
-    println!("Downloading: {}", asset.browser_download_url);
+    fs::create_dir_all(output_dir)
+        .with_context(|| format!("Failed to create output directory: {}", output_dir))?;
+    
     download_file(&asset.browser_download_url, &output_path).await?;
     
-    println!("Successfully downloaded: {}", output_path.display());
+    // Extract if unzip_to is specified
+    if let Some(unzip_to) = unzip_to {
+        println!("Extracting to: {}", unzip_to);
+        extract_zip(&output_path, unzip_to, files_pattern)?;
+    }
+    
     Ok(())
 }
 
@@ -382,6 +433,14 @@ async fn upgrade_recipe(file_path: &str) -> Result<()> {
     
     for fetch_item in &mut recipe.fetch {
         if let Some(github) = &mut fetch_item.github {
+            // Ensure binary field has a value for consistent processing
+            if github.binary.is_none() {
+                let guessed = guess_binary_name();
+                println!("No binary specified for {}, setting to: {}", github.repo, guessed);
+                github.binary = Some(guessed);
+                updated = true;
+            }
+            
             println!("Checking latest version for {}", github.repo);
             
             match get_latest_github_tag(&github.repo).await {

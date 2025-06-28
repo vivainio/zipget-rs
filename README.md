@@ -63,9 +63,6 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
 
 ```json
 {
-    "config": {
-        "archive": ["./cache"]
-    },
     "fetch": [
         {
             "url": "https://example.com/some-file.zip",
@@ -93,7 +90,6 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
 
 ### Recipe Schema
 
-- **config.archive**: Array of directories where downloaded files are cached
 - **fetch**: Array of items to download, each item can have:
   - **url**: Direct URL to download from
   - **github**: GitHub release specification
@@ -148,10 +144,10 @@ This will:
 
 ## How It Works
 
-1. **Caching**: Each URL is hashed using MD5, and the downloaded file is stored as `{hash}_{filename}` in the archive directory
-2. **Cache Check**: Before downloading, zipget checks if the file already exists in any archive directory
+1. **Caching**: Each URL is hashed using MD5, and the downloaded file is stored as `{hash}_{filename}` in a system temporary cache directory (`%TEMP%\zipget-cache` on Windows, `/tmp/zipget-cache` on Unix)
+2. **Cache Check**: Before downloading, zipget checks if the file already exists in the cache directory
 3. **GitHub API**: For GitHub releases, the tool queries the GitHub API to get download URLs
-4. **Download**: If not cached, the file is downloaded and stored in the first archive directory
+4. **Download**: If not cached, the file is downloaded and stored in the cache directory
 5. **Extract**: If `unzipTo` is specified, the ZIP file is extracted to the target directory
 6. **Save**: If `saveAs` is specified, the downloaded file is copied to the specified path
 
@@ -185,9 +181,6 @@ zipget recipe my_toolchain.json --upgrade
 
 ```json
 {
-    "config": {
-        "archive": ["./cache"]
-    },
     "fetch": [
         {
             "url": "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip",

@@ -1,7 +1,4 @@
 {
-    "config": {
-        "archive": ["./cache"]
-    },
     "fetch": [
         {
             "url": "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip",
