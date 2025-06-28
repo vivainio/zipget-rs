@@ -21,6 +21,8 @@ enum Commands {
     Recipe {
         /// Recipe file path
         file: String,
+        /// Optional tag to filter items by
+        tag: Option<String>,
         /// Upgrade all GitHub releases to latest versions
         #[arg(long)]
         upgrade: bool,
@@ -62,6 +64,8 @@ struct FetchItem {
     save_as: Option<String>,
     /// Optional glob pattern for files to extract from ZIP (extracts all if not specified)
     files: Option<String>,
+    /// Optional tags for filtering
+    tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -97,7 +101,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
     
     match args.command {
-        Commands::Recipe { file, upgrade } => {
+        Commands::Recipe { file, tag, upgrade } => {
             if upgrade {
                 upgrade_recipe(&file)?;
             } else {
@@ -107,8 +111,36 @@ fn main() -> Result<()> {
                 let recipe: Recipe = serde_json::from_str(&recipe_content)
                     .with_context(|| "Failed to parse recipe JSON")?;
                 
+                // Filter items by tag if specified
+                let items_to_process: Vec<&FetchItem> = if let Some(filter_tag) = &tag {
+                    recipe.fetch.iter()
+                        .filter(|item| {
+                            item.tags.as_ref()
+                                .map(|tags| tags.contains(filter_tag))
+                                .unwrap_or(false)
+                        })
+                        .collect()
+                } else {
+                    recipe.fetch.iter().collect()
+                };
+                
+                if items_to_process.is_empty() {
+                    if let Some(filter_tag) = &tag {
+                        println!("No items found with tag: {}", filter_tag);
+                    } else {
+                        println!("No items to process in recipe");
+                    }
+                    return Ok(());
+                }
+                
+                if let Some(filter_tag) = &tag {
+                    println!("Processing {} items with tag: {}", items_to_process.len(), filter_tag);
+                } else {
+                    println!("Processing all {} items from recipe", items_to_process.len());
+                }
+                
                 // Process each fetch item
-                for fetch_item in &recipe.fetch {
+                for fetch_item in items_to_process {
                     process_fetch_item(fetch_item)?;
                 }
                 
@@ -224,8 +256,11 @@ fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) ->
         
         // Check if file matches the glob pattern (if specified)
         if let Some(pattern) = file_pattern {
-            if !glob_match(pattern, file.name()) {
-                continue; // Skip files that don't match the pattern
+            let filename = Path::new(file.name()).file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if !glob_match(pattern, file.name()) && !glob_match(pattern, filename) {
+                continue; // Skip files that don't match the pattern (checking both full path and filename)
             }
         }
         
@@ -297,8 +332,11 @@ fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>)
         
         // Check if file matches the glob pattern (if specified)
         if let Some(pattern) = file_pattern {
-            if !glob_match(pattern, path_str) {
-                continue; // Skip files that don't match the pattern
+            let filename = path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if !glob_match(pattern, path_str) && !glob_match(pattern, filename) {
+                continue; // Skip files that don't match the pattern (checking both full path and filename)
             }
         }
         

@@ -2,12 +2,14 @@
     "fetch": [
         {
             "url": "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip",
-            "unzipTo": "./downloads"
+            "unzipTo": "./downloads",
+            "tags": ["dev-tools", "modulize"]
         },
         {
             "url": "https://github.com/vivainio/hashibuild/archive/refs/heads/master.zip",
             "unzipTo": "./downloads",
-            "saveAs": "./downloads/hashibuild-master.zip"
+            "saveAs": "./downloads/hashibuild-master.zip",
+            "tags": ["build-tools", "dev-tools"]
         },
         {
             "github": {
@@ -15,7 +17,8 @@
                 "binary": "linux"
             },
             "unzipTo": "./downloads",
-            "files": "rg"
+            "files": "rg",
+            "tags": ["search", "cli-tools"]
         }
     ]
 } 
