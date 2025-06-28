@@ -15,10 +15,10 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Install packages from a recipe file
-    Install {
+    /// Process a recipe file to download and extract packages
+    Recipe {
         /// Recipe file path
-        recipe: String,
+        file: String,
     },
 }
 
@@ -47,9 +47,9 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     
     match args.command {
-        Commands::Install { recipe } => {
-            let recipe_content = fs::read_to_string(&recipe)
-                .with_context(|| format!("Failed to read recipe file: {}", recipe))?;
+        Commands::Recipe { file } => {
+            let recipe_content = fs::read_to_string(&file)
+                .with_context(|| format!("Failed to read recipe file: {}", file))?;
             
             let recipe: Recipe = serde_json::from_str(&recipe_content)
                 .with_context(|| "Failed to parse recipe JSON")?;
