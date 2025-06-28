@@ -19,6 +19,18 @@
             "unzipTo": "./downloads",
             "files": "rg",
             "tags": ["search", "cli-tools"]
+        },
+        {
+            "url": "s3://my-tools-bucket/releases/app-v1.2.3.zip",
+            "unzipTo": "./downloads/s3-tools",
+            "files": "*.exe",
+            "tags": ["s3", "dev-tools"]
+        },
+        {
+            "url": "s3://company-private-bucket/internal/tool.tar.gz",
+            "unzipTo": "./downloads/internal-tools",
+            "profile": "company-profile",
+            "tags": ["s3", "internal", "dev-tools"]
         }
     ]
 } 

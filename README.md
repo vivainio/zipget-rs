@@ -11,9 +11,10 @@ You want to download and extract files from URLs or GitHub releases, with intell
 - **Intelligent Caching**: Files are cached using MD5 hash of the URL to avoid re-downloading
 - **Multi-Format Archive Support**: Extract both ZIP and tar.gz (.tgz) archives automatically
 - **GitHub Releases Integration**: Download latest or specific tagged releases from GitHub repositories
+- **S3 Support**: Download files from AWS S3 buckets using `s3://` URLs with AWS CLI integration
 - **Recipe-Based Batch Processing**: Process multiple downloads from JSON recipes
 - **Version Management**: Automatically upgrade GitHub releases to latest versions
-- **Mixed Sources**: Combine URL downloads and GitHub releases in a single recipe
+- **Mixed Sources**: Combine URL downloads, GitHub releases, and S3 downloads in a single recipe  
 - **Flexible Output**: Extract to directories and/or save files with custom names
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 
@@ -38,6 +39,9 @@ Process a recipe file to download and extract multiple packages:
 ```bash
 # Process a recipe file
 zipget recipe my_recipe.json
+
+# Process recipe with specific AWS profile for S3 downloads
+zipget recipe my_recipe.json --profile my-aws-profile
 
 # Upgrade all GitHub releases in recipe to latest versions
 zipget recipe my_recipe.json --upgrade
@@ -93,7 +97,7 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
 ### Recipe Schema
 
 - **fetch**: Array of items to download, each item can have:
-  - **url**: Direct URL to download from
+  - **url**: Direct URL to download from (supports HTTP/HTTPS and S3 URLs)
   - **github**: GitHub release specification
     - **repo**: Repository in "owner/repo" format
     - **binary**: Name pattern to match in release assets
@@ -101,6 +105,7 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
   - **unzipTo** (optional): Directory where archives should be extracted (supports ZIP and tar.gz files)
   - **saveAs** (optional): Path where the downloaded file should be saved
   - **files** (optional): Glob pattern for files to extract from archives (extracts all if not specified)
+  - **profile** (optional): AWS profile to use for S3 downloads (overrides global --profile)
 
 ## GitHub Integration
 
@@ -145,14 +150,111 @@ This will:
 - Save the updated recipe file
 - Show which versions were upgraded
 
+## S3 Integration
+
+### Prerequisites
+
+S3 support requires AWS CLI to be installed and configured:
+
+```bash
+# Install AWS CLI (example for Windows)
+winget install Amazon.AWSCLI
+
+# Configure AWS credentials
+aws configure
+```
+
+### S3 URLs
+
+Use standard S3 URL format in recipes:
+
+```json
+{
+    "fetch": [
+        {
+            "url": "s3://my-bucket/path/to/file.zip",
+            "unzipTo": "./downloads"
+        },
+        {
+            "url": "s3://private-bucket/releases/app-v1.2.3.tar.gz",
+            "unzipTo": "./tools",
+            "files": "*.exe"
+        }
+    ]
+}
+```
+
+### Authentication
+
+S3 downloads use your configured AWS CLI credentials and support:
+- AWS credentials file (`~/.aws/credentials`)
+- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+- IAM roles (for EC2/ECS environments)
+- AWS profiles (`aws configure --profile myprofile`)
+
+### AWS Profile Support
+
+You can specify AWS profiles in two ways:
+
+**Global profile (applies to all S3 downloads in recipe):**
+```bash
+zipget recipe my_recipe.json --profile production-profile
+```
+
+**Per-item profile (overrides global profile):**
+```json
+{
+    "fetch": [
+        {
+            "url": "s3://prod-bucket/app.zip",
+            "profile": "production-profile",
+            "unzipTo": "./app"
+        },
+        {
+            "url": "s3://dev-bucket/test-data.zip", 
+            "profile": "development-profile",
+            "unzipTo": "./test"
+        }
+    ]
+}
+```
+
+### Mixed Sources
+
+Combine S3, HTTP, and GitHub sources in a single recipe:
+
+```json
+{
+    "fetch": [
+        {
+            "url": "https://example.com/public-tool.zip",
+            "unzipTo": "./tools"
+        },
+        {
+            "url": "s3://private-bucket/internal-tool.zip",
+            "profile": "company-profile",
+            "unzipTo": "./tools"
+        },
+        {
+            "github": {
+                "repo": "user/repo",
+                "binary": "windows"
+            },
+            "unzipTo": "./tools"
+        }
+    ]
+}
+```
+
 ## How It Works
 
 1. **Caching**: Each URL is hashed using MD5, and the downloaded file is stored as `{hash}_{filename}` in a system temporary cache directory (`%TEMP%\zipget-cache` on Windows, `/tmp/zipget-cache` on Unix)
 2. **Cache Check**: Before downloading, zipget checks if the file already exists in the cache directory
 3. **GitHub API**: For GitHub releases, the tool queries the GitHub API to get download URLs
-4. **Download**: If not cached, the file is downloaded and stored in the cache directory
-5. **Extract**: If `unzipTo` is specified, the archive is extracted to the target directory (auto-detects ZIP and tar.gz formats)
-6. **Save**: If `saveAs` is specified, the downloaded file is copied to the specified path
+4. **S3 Downloads**: For S3 URLs, the tool uses AWS CLI (`aws s3 cp`) to download files using your configured credentials
+5. **Download**: If not cached, the file is downloaded and stored in the cache directory
+6. **Extract**: If `unzipTo` is specified, the archive is extracted to the target directory (auto-detects ZIP and tar.gz formats)
+7. **Save**: If `saveAs` is specified, the downloaded file is copied to the specified path
 
 ## Examples
 
@@ -178,6 +280,22 @@ Keep all your tools up-to-date:
 
 ```bash
 zipget recipe my_toolchain.json --upgrade
+```
+
+### S3 Download
+
+Download files from S3 buckets using s3:// URLs:
+
+```json
+{
+    "fetch": [
+        {
+            "url": "s3://my-company-tools/releases/internal-tool.zip",
+            "unzipTo": "./tools",
+            "files": "*.exe"
+        }
+    ]
+}
 ```
 
 ### Selective File Extraction

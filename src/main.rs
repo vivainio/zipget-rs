@@ -26,6 +26,9 @@ enum Commands {
         /// Upgrade all GitHub releases to latest versions
         #[arg(long)]
         upgrade: bool,
+        /// AWS profile to use for S3 downloads
+        #[arg(short, long)]
+        profile: Option<String>,
     },
     /// Fetch the latest release binary from a GitHub repository
     Github {
@@ -66,6 +69,8 @@ struct FetchItem {
     files: Option<String>,
     /// Optional tags for filtering
     tags: Option<Vec<String>>,
+    /// Optional AWS profile for S3 downloads
+    profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -97,11 +102,113 @@ fn get_cache_dir() -> Result<std::path::PathBuf> {
     Ok(cache_dir)
 }
 
+fn is_s3_url(url: &str) -> bool {
+    url.starts_with("s3://")
+}
+
+fn download_s3_file(s3_url: &str, local_path: &Path, profile: Option<&str>) -> Result<()> {
+    println!("Downloading from S3: {}", s3_url);
+    
+    // Check if AWS CLI is available
+    let aws_version = std::process::Command::new("aws")
+        .arg("--version")
+        .output();
+    
+    match aws_version {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout);
+            println!("Using AWS CLI: {}", version.lines().next().unwrap_or("").trim());
+        },
+        Ok(_) => return Err(anyhow::anyhow!("AWS CLI returned an error")),
+        Err(_) => return Err(anyhow::anyhow!(
+            "AWS CLI not found. Please install AWS CLI and configure credentials:\n\
+             - Install: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html\n\
+             - Configure: aws configure"
+        )),
+    }
+    
+    // Create parent directory if needed
+    if let Some(parent) = local_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+    }
+    
+    // Create a temporary file in the same directory as the target file
+    let temp_path = local_path.with_extension(
+        format!("{}.tmp", 
+            local_path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("download")
+        )
+    );
+    
+    // Download with aws s3 cp to temporary file first
+    let mut cmd = std::process::Command::new("aws");
+    
+    // Add profile if specified
+    if let Some(profile_name) = profile {
+        println!("Using AWS profile: {}", profile_name);
+        cmd.arg("--profile").arg(profile_name);
+    }
+    
+    let output = cmd
+        .arg("s3")
+        .arg("cp")
+        .arg(s3_url)
+        .arg(&temp_path)
+        .output()
+        .with_context(|| "Failed to execute aws s3 cp command")?;
+    
+    if output.status.success() {
+        // Get file size for consistent logging
+        let file_size = fs::metadata(&temp_path)
+            .with_context(|| format!("Failed to get file metadata: {}", temp_path.display()))?
+            .len();
+        
+        // Atomically move the temporary file to the final location
+        fs::rename(&temp_path, local_path)
+            .with_context(|| {
+                let _ = fs::remove_file(&temp_path);
+                format!("Failed to move temporary file to final location: {} -> {}", 
+                    temp_path.display(), local_path.display())
+            })?;
+        
+        println!("Downloaded: {} ({} bytes)", local_path.display(), file_size);
+        Ok(())
+    } else {
+        // Clean up temporary file on failure
+        let _ = fs::remove_file(&temp_path);
+        
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        // Provide helpful error messages for common issues
+        let error_msg = if stderr.contains("NoCredentialsError") || stderr.contains("Unable to locate credentials") {
+            "AWS credentials not configured. Run 'aws configure' to set up credentials."
+        } else if stderr.contains("NoSuchBucket") {
+            "S3 bucket does not exist or you don't have access to it."
+        } else if stderr.contains("NoSuchKey") {
+            "S3 object does not exist."
+        } else if stderr.contains("AccessDenied") {
+            "Access denied. Check your AWS permissions for this S3 bucket/object."
+        } else {
+            "AWS S3 download failed"
+        };
+        
+        Err(anyhow::anyhow!(
+            "{}:\nSTDERR: {}\nSTDOUT: {}", 
+            error_msg,
+            stderr.trim(), 
+            stdout.trim()
+        ))
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     
     match args.command {
-        Commands::Recipe { file, tag, upgrade } => {
+        Commands::Recipe { file, tag, upgrade, profile } => {
             if upgrade {
                 upgrade_recipe(&file)?;
             } else {
@@ -141,7 +248,7 @@ fn main() -> Result<()> {
                 
                 // Process each fetch item
                 for fetch_item in items_to_process {
-                    process_fetch_item(fetch_item)?;
+                    process_fetch_item(fetch_item, profile.as_deref())?;
                 }
                 
                 println!("All downloads and extractions completed successfully!");
@@ -155,7 +262,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
+fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> Result<()> {
     let cache_dir = get_cache_dir()?;
     
     let (download_url, filename) = if let Some(url) = &fetch_item.url {
@@ -189,7 +296,9 @@ fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     } else {
         // Download the file
         println!("Downloading: {}", download_url);
-        download_file(&download_url, &cached_file_path)?;
+        // Use item's profile if specified, otherwise use global profile
+        let profile_to_use = fetch_item.profile.as_deref().or(global_profile);
+        download_file(&download_url, &cached_file_path, profile_to_use)?;
         cached_file_path
     };
     
@@ -214,59 +323,63 @@ fn process_fetch_item(fetch_item: &FetchItem) -> Result<()> {
     Ok(())
 }
 
-fn download_file(url: &str, path: &Path) -> Result<()> {
-    let response = ureq::get(url).call()
-        .with_context(|| format!("Failed to download: {}", url))?;
-    
-    if response.status() != 200 {
-        return Err(anyhow::anyhow!("Download failed with status: {}", response.status()));
+fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {
+    if is_s3_url(url) {
+        download_s3_file(url, path, profile)
+    } else {
+        let response = ureq::get(url).call()
+            .with_context(|| format!("Failed to download: {}", url))?;
+        
+        if response.status() != 200 {
+            return Err(anyhow::anyhow!("Download failed with status: {}", response.status()));
+        }
+        
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+        
+        // Create a temporary file in the same directory as the target file
+        let temp_path = path.with_extension(
+            format!("{}.tmp", 
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .unwrap_or("download")
+            )
+        );
+        
+        // Download to temporary file first
+        let mut temp_file = fs::File::create(&temp_path)
+            .with_context(|| format!("Failed to create temporary file: {}", temp_path.display()))?;
+        
+        std::io::copy(&mut response.into_reader(), &mut temp_file)
+            .with_context(|| {
+                // Clean up temporary file on failure
+                let _ = fs::remove_file(&temp_path);
+                format!("Failed to write to temporary file: {}", temp_path.display())
+            })?;
+        
+        // Ensure data is written to disk
+        temp_file.sync_all()
+            .with_context(|| {
+                let _ = fs::remove_file(&temp_path);
+                format!("Failed to sync temporary file: {}", temp_path.display())
+            })?;
+        
+        let file_size = temp_file.metadata()?.len();
+        drop(temp_file); // Close the file handle
+        
+        // Atomically move the temporary file to the final location
+        fs::rename(&temp_path, path)
+            .with_context(|| {
+                let _ = fs::remove_file(&temp_path);
+                format!("Failed to move temporary file to final location: {} -> {}", 
+                    temp_path.display(), path.display())
+            })?;
+        
+        println!("Downloaded: {} ({} bytes)", path.display(), file_size);
+        Ok(())
     }
-    
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
-    }
-    
-    // Create a temporary file in the same directory as the target file
-    let temp_path = path.with_extension(
-        format!("{}.tmp", 
-            path.extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or("download")
-        )
-    );
-    
-    // Download to temporary file first
-    let mut temp_file = fs::File::create(&temp_path)
-        .with_context(|| format!("Failed to create temporary file: {}", temp_path.display()))?;
-    
-    std::io::copy(&mut response.into_reader(), &mut temp_file)
-        .with_context(|| {
-            // Clean up temporary file on failure
-            let _ = fs::remove_file(&temp_path);
-            format!("Failed to write to temporary file: {}", temp_path.display())
-        })?;
-    
-    // Ensure data is written to disk
-    temp_file.sync_all()
-        .with_context(|| {
-            let _ = fs::remove_file(&temp_path);
-            format!("Failed to sync temporary file: {}", temp_path.display())
-        })?;
-    
-    let file_size = temp_file.metadata()?.len();
-    drop(temp_file); // Close the file handle
-    
-    // Atomically move the temporary file to the final location
-    fs::rename(&temp_path, path)
-        .with_context(|| {
-            let _ = fs::remove_file(&temp_path);
-            format!("Failed to move temporary file to final location: {} -> {}", 
-                temp_path.display(), path.display())
-        })?;
-    
-    println!("Downloaded: {} ({} bytes)", path.display(), file_size);
-    Ok(())
 }
 
 fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
@@ -414,10 +527,22 @@ fn extract_archive(archive_path: &Path, extract_to: &str, file_pattern: Option<&
 }
 
 fn get_filename_from_url(url: &str) -> String {
-    url.split('/')
-        .last()
-        .unwrap_or("download")
-        .to_string()
+    if url.starts_with("s3://") {
+        // Extract filename from S3 URL: s3://bucket/path/to/file.zip -> file.zip
+        url.split('/')
+            .last()
+            .unwrap_or("download")
+            .to_string()
+    } else {
+        // Existing HTTP URL logic - handle query parameters
+        url.split('/')
+            .last()
+            .unwrap_or("download")
+            .split('?')
+            .next()
+            .unwrap_or("download")
+            .to_string()
+    }
 }
 
 fn guess_binary_name() -> String {
@@ -496,7 +621,7 @@ fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&
     } else {
         // Download the file
         println!("Downloading: {}", download_url);
-        download_file(download_url, &cached_file_path)?;
+        download_file(download_url, &cached_file_path, None)?;
         cached_file_path
     };
     
