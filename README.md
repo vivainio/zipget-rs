@@ -1,10 +1,10 @@
 # zipget-rs
 
-A Rust clone of [zipget](https://github.com/vivainio/zipget) - a tool for downloading and extracting files with intelligent caching, now with enhanced GitHub releases support and tar.gz extraction.
+A Rust clone of [zipget](https://github.com/vivainio/zipget) - a powerful tool for downloading and extracting files from multiple sources including URLs, GitHub releases, and **AWS S3 buckets**, with intelligent caching and advanced features.
 
 ## Problem
 
-You want to download and extract files from URLs or GitHub releases, with intelligent caching to avoid re-downloading, and the ability to keep your toolchain up-to-date automatically.
+You want to download and extract files from multiple sources - public URLs, GitHub releases, and private S3 buckets - with intelligent caching to avoid re-downloading, and the ability to keep your toolchain up-to-date automatically. Whether you're managing development tools, deploying applications, or distributing private assets through S3, you need a unified solution that handles authentication, caching, and extraction seamlessly.
 
 ## Features
 
@@ -29,6 +29,40 @@ cargo build --release
 ```
 
 The binary will be available at `target/release/zipget`.
+
+## Quick Start
+
+### Basic Usage
+```bash
+# Download from HTTP
+zipget recipe demo_recipe.json
+
+# Download from GitHub releases  
+zipget github sharkdp/bat windows --unzip-to ./tools
+```
+
+### S3 Quick Start
+```bash
+# 1. Install and configure AWS CLI
+winget install Amazon.AWSCLI  # Windows
+aws configure                 # Set up credentials
+
+# 2. Create an S3 recipe
+echo '{
+    "fetch": [
+        {
+            "url": "s3://my-bucket/app.zip",
+            "unzipTo": "./app"
+        }
+    ]
+}' > s3-recipe.json
+
+# 3. Download from S3
+zipget recipe s3-recipe.json
+
+# 4. Use different AWS profiles
+zipget recipe s3-recipe.json --profile my-profile
+```
 
 ## Commands
 
@@ -64,7 +98,7 @@ zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
 
 ## Recipe Format
 
-Zipget uses JSON recipe files to define what to download and where to put it. Recipes support both direct URLs and GitHub releases:
+Zipget uses JSON recipe files to define what to download and where to put it. Recipes support HTTP URLs, GitHub releases, and S3 buckets:
 
 ```json
 {
@@ -72,6 +106,12 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
         {
             "url": "https://example.com/some-file.zip",
             "unzipTo": "./downloads"
+        },
+        {
+            "url": "s3://private-bucket/internal-tool.tar.gz",
+            "profile": "company-profile",
+            "unzipTo": "./tools",
+            "files": "*.exe"
         },
         {
             "github": {
@@ -192,6 +232,17 @@ S3 downloads use your configured AWS CLI credentials and support:
 - IAM roles (for EC2/ECS environments)
 - AWS profiles (`aws configure --profile myprofile`)
 
+### S3-Compatible Services
+
+zipget-rs works with any S3-compatible service that AWS CLI supports, including:
+- **Amazon S3** (default)
+- **MinIO** 
+- **DigitalOcean Spaces**
+- **Backblaze B2**
+- **Google Cloud Storage** (with S3 API)
+
+Configure alternative endpoints through AWS CLI configuration or environment variables.
+
 ### AWS Profile Support
 
 You can specify AWS profiles in two ways:
@@ -246,6 +297,61 @@ Combine S3, HTTP, and GitHub sources in a single recipe:
 }
 ```
 
+### S3 Troubleshooting
+
+**Common S3 Issues and Solutions:**
+
+```bash
+# Issue: "NoCredentialsError" or "Unable to locate credentials"
+# Solution: Configure AWS credentials
+aws configure
+
+# Issue: "The config profile (profile-name) could not be found"
+# Solution: List available profiles and configure missing one
+aws configure list-profiles
+aws configure --profile profile-name
+
+# Issue: "NoSuchBucket" 
+# Solution: Check bucket name and permissions
+aws s3 ls s3://your-bucket-name
+
+# Issue: "AccessDenied"
+# Solution: Verify IAM permissions for s3:GetObject action
+aws iam get-user
+```
+
+**Testing S3 Access:**
+```bash
+# Test S3 access with AWS CLI first
+aws s3 ls s3://your-bucket/
+aws s3 cp s3://your-bucket/test-file.zip ./test-download.zip
+
+# Then use zipget-rs
+zipget recipe your-s3-recipe.json
+```
+
+### S3 Use Cases
+
+**Enterprise Software Distribution:**
+- Store private application releases in S3 buckets
+- Use different profiles for production, staging, and development environments
+- Implement secure software deployment pipelines
+
+**CI/CD Pipeline Assets:**
+- Download build artifacts from S3 during deployment
+- Cache frequently used dependencies and tools
+- Distribute configuration files and secrets securely
+
+**Multi-Cloud Development:**
+- Access assets from different cloud providers (AWS, DigitalOcean, MinIO)
+- Maintain consistent tooling across hybrid environments
+- Support air-gapped deployments with private S3-compatible storage
+
+**Development Team Workflows:**
+- Share development tools and SDKs through private buckets
+- Distribute large binary assets that shouldn't be in git repositories
+- Manage different tool versions per team or project
+
 ## How It Works
 
 1. **Caching**: Each URL is hashed using MD5, and the downloaded file is stored as `{hash}_{filename}` in a system temporary cache directory (`%TEMP%\zipget-cache` on Windows, `/tmp/zipget-cache` on Unix)
@@ -282,10 +388,11 @@ Keep all your tools up-to-date:
 zipget recipe my_toolchain.json --upgrade
 ```
 
-### S3 Download
+### S3 Downloads
 
 Download files from S3 buckets using s3:// URLs:
 
+**Basic S3 download:**
 ```json
 {
     "fetch": [
@@ -296,6 +403,41 @@ Download files from S3 buckets using s3:// URLs:
         }
     ]
 }
+```
+
+**Multi-environment S3 setup with profiles:**
+```json
+{
+    "fetch": [
+        {
+            "url": "s3://production-releases/app-v2.1.0.tar.gz",
+            "profile": "prod-profile",
+            "unzipTo": "./prod-app",
+            "tags": ["production"]
+        },
+        {
+            "url": "s3://staging-releases/app-v2.2.0-beta.tar.gz", 
+            "profile": "staging-profile",
+            "unzipTo": "./staging-app",
+            "tags": ["staging"]
+        },
+        {
+            "url": "s3://dev-assets/test-data.zip",
+            "profile": "dev-profile",
+            "saveAs": "./test/data.zip",
+            "tags": ["development"]
+        }
+    ]
+}
+```
+
+**Enterprise deployment recipe:**
+```bash
+# Deploy to production with specific profile
+zipget recipe enterprise-deploy.json --profile production-profile
+
+# Deploy only staging components
+zipget recipe enterprise-deploy.json staging
 ```
 
 ### Selective File Extraction
