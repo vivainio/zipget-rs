@@ -227,13 +227,44 @@ fn download_file(url: &str, path: &Path) -> Result<()> {
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
     
-    let mut file = fs::File::create(path)
-        .with_context(|| format!("Failed to create file: {}", path.display()))?;
+    // Create a temporary file in the same directory as the target file
+    let temp_path = path.with_extension(
+        format!("{}.tmp", 
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("download")
+        )
+    );
     
-    std::io::copy(&mut response.into_reader(), &mut file)
-        .with_context(|| format!("Failed to write to file: {}", path.display()))?;
+    // Download to temporary file first
+    let mut temp_file = fs::File::create(&temp_path)
+        .with_context(|| format!("Failed to create temporary file: {}", temp_path.display()))?;
     
-    let file_size = file.metadata()?.len();
+    std::io::copy(&mut response.into_reader(), &mut temp_file)
+        .with_context(|| {
+            // Clean up temporary file on failure
+            let _ = fs::remove_file(&temp_path);
+            format!("Failed to write to temporary file: {}", temp_path.display())
+        })?;
+    
+    // Ensure data is written to disk
+    temp_file.sync_all()
+        .with_context(|| {
+            let _ = fs::remove_file(&temp_path);
+            format!("Failed to sync temporary file: {}", temp_path.display())
+        })?;
+    
+    let file_size = temp_file.metadata()?.len();
+    drop(temp_file); // Close the file handle
+    
+    // Atomically move the temporary file to the final location
+    fs::rename(&temp_path, path)
+        .with_context(|| {
+            let _ = fs::remove_file(&temp_path);
+            format!("Failed to move temporary file to final location: {} -> {}", 
+                temp_path.display(), path.display())
+        })?;
+    
     println!("Downloaded: {} ({} bytes)", path.display(), file_size);
     Ok(())
 }
