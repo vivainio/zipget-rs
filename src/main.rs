@@ -1373,26 +1373,29 @@ fn is_executable(path: &Path) -> Result<bool> {
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    fs::create_dir_all(dst).with_context(|| {
-        format!("Failed to create destination directory: {}", dst.display())
-    })?;
-    
-    for entry in fs::read_dir(src).with_context(|| {
-        format!("Failed to read source directory: {}", src.display())
-    })? {
+    fs::create_dir_all(dst)
+        .with_context(|| format!("Failed to create destination directory: {}", dst.display()))?;
+
+    for entry in fs::read_dir(src)
+        .with_context(|| format!("Failed to read source directory: {}", src.display()))?
+    {
         let entry = entry.with_context(|| "Failed to read directory entry")?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
-        
+
         if src_path.is_dir() {
             copy_dir_all(&src_path, &dst_path)?;
         } else {
             fs::copy(&src_path, &dst_path).with_context(|| {
-                format!("Failed to copy {} to {}", src_path.display(), dst_path.display())
+                format!(
+                    "Failed to copy {} to {}",
+                    src_path.display(),
+                    dst_path.display()
+                )
             })?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -1797,9 +1800,8 @@ fn install_package(
 
             // Copy all files from temp directory to app directory
             println!("Installing all files to: {}", app_dir.display());
-            copy_dir_all(&temp_dir, &app_dir).with_context(|| {
-                format!("Failed to copy files to {}", app_dir.display())
-            })?;
+            copy_dir_all(&temp_dir, &app_dir)
+                .with_context(|| format!("Failed to copy files to {}", app_dir.display()))?;
 
             // Install shims for each executable
             let mut installed_executables = Vec::new();
