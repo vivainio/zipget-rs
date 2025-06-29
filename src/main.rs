@@ -96,7 +96,7 @@ enum Commands {
         #[arg(last = true)]
         args: Vec<String>,
     },
-    /// Install a binary to local Programs folder and create a shim (Windows only)
+    /// Install a binary to local Programs folder and create a shim (Windows), or directly to ~/.local/bin (--no-shim)
     Install {
         /// Source to download from: URL or GitHub repository (owner/repo format)
         source: String,
@@ -115,6 +115,9 @@ enum Commands {
         /// Executable name to install (installs all executables if not specified)
         #[arg(short = 'e', long = "exe")]
         executable: Option<String>,
+        /// Install executable directly to ~/.local/bin instead of creating shims
+        #[arg(long)]
+        no_shim: bool,
     },
 }
 
@@ -348,8 +351,8 @@ fn main() -> Result<()> {
         Commands::Run { source, binary, tag, files, profile, executable, args } => {
             run_package(&source, binary.as_deref(), tag.as_deref(), files.as_deref(), profile.as_deref(), executable.as_deref(), &args)?;
         }
-        Commands::Install { source, binary, tag, files, profile, executable } => {
-            install_package(&source, binary.as_deref(), tag.as_deref(), files.as_deref(), profile.as_deref(), executable.as_deref())?;
+        Commands::Install { source, binary, tag, files, profile, executable, no_shim } => {
+            install_package(&source, binary.as_deref(), tag.as_deref(), files.as_deref(), profile.as_deref(), executable.as_deref(), no_shim)?;
         }
     }
     
@@ -1153,138 +1156,119 @@ fn is_executable(path: &Path) -> Result<bool> {
     }
 }
 
-fn install_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_pattern: Option<&str>, profile: Option<&str>, executable: Option<&str>) -> Result<()> {
-    #[cfg(not(windows))]
-    {
-        return Err(anyhow::anyhow!("The install command is only available on Windows"));
+fn install_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_pattern: Option<&str>, profile: Option<&str>, executable: Option<&str>, no_shim: bool) -> Result<()> {
+    if !no_shim {
+        #[cfg(not(windows))]
+        {
+            return Err(anyhow::anyhow!("The install command with shims is only available on Windows. Use --no-shim to install directly to ~/.local/bin"));
+        }
     }
     
-    #[cfg(windows)]
-    {
-        use std::env;
-        
-        // Get LOCALAPPDATA directory
-        let local_app_data = env::var("LOCALAPPDATA")
-            .with_context(|| "LOCALAPPDATA environment variable not found")?;
-        let programs_dir = Path::new(&local_app_data).join("Programs");
-        
-        // Create Programs directory if it doesn't exist
-        fs::create_dir_all(&programs_dir)
-            .with_context(|| format!("Failed to create Programs directory: {}", programs_dir.display()))?;
-        
-        // Create a temporary directory for extraction
-        let temp_dir = std::env::temp_dir().join(format!("zipget-install-{}", std::process::id()));
-        fs::create_dir_all(&temp_dir)
-            .with_context(|| format!("Failed to create temp directory: {}", temp_dir.display()))?;
-        
-        // Download and extract to temp directory
-        let cache_dir = get_cache_dir()?;
-        let (download_url, filename) = if source.contains('/') && !source.starts_with("http") {
-            // Treat as GitHub repo
-            let binary_name = if let Some(name) = binary {
-                name.to_string()
-            } else {
-                println!("No binary specified for {}, analyzing available assets...", source);
-                let (_release, best_match) = get_best_binary_from_release(source, tag)?;
-                best_match
-            };
-            
-            println!("Processing GitHub repo: {}, binary: {}", source, binary_name);
-            let github_url = get_github_release_url(source, &binary_name, tag)?;
-            let filename = get_filename_from_url(&github_url);
-            (github_url, filename)
+    // Create a temporary directory for extraction
+    let temp_dir = std::env::temp_dir().join(format!("zipget-install-{}", std::process::id()));
+    fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("Failed to create temp directory: {}", temp_dir.display()))?;
+    
+    // Download and extract to temp directory
+    let cache_dir = get_cache_dir()?;
+    let (download_url, filename) = if source.contains('/') && !source.starts_with("http") {
+        // Treat as GitHub repo
+        let binary_name = if let Some(name) = binary {
+            name.to_string()
         } else {
-            // Treat as direct URL
-            println!("Processing URL: {}", source);
-            let filename = get_filename_from_url(source);
-            (source.to_string(), filename)
+            println!("No binary specified for {}, analyzing available assets...", source);
+            let (_release, best_match) = get_best_binary_from_release(source, tag)?;
+            best_match
         };
         
-        let url_hash = format!("{:x}", md5::compute(&download_url));
-        let cached_filename = format!("{}_{}", url_hash, filename);
-        let cached_file_path = cache_dir.join(&cached_filename);
-        
-        let file_path = if cached_file_path.exists() {
-            println!("Found cached file: {}", cached_file_path.display());
-            cached_file_path
-        } else {
-            println!("Downloading: {}", download_url);
-            download_file(&download_url, &cached_file_path, profile)?;
-            cached_file_path
-        };
-        
-        // Extract to temp directory
-        println!("Extracting to temporary directory: {}", temp_dir.display());
-        extract_archive(&file_path, temp_dir.to_str().unwrap(), files_pattern)?;
-        
-        // Find executables in the extracted directory
-        let executables = find_executables(&temp_dir)?;
-        
-        if executables.is_empty() {
-            return Err(anyhow::anyhow!("No executables found in the extracted archive"));
-        }
-        
-        // Create shim directory (~/.local/bin)
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-        let shim_dir = home_dir.join(".local").join("bin");
-        fs::create_dir_all(&shim_dir)
-            .with_context(|| format!("Failed to create shim directory: {}", shim_dir.display()))?;
-        
-        // Determine which executables to install
-        let executables_to_install: Vec<&std::path::PathBuf> = if let Some(exe_name) = executable {
-            // User specified an executable name
-            let target_exe = executables.iter()
-                .find(|path| {
-                    path.file_stem()
-                        .and_then(|name| name.to_str())
-                        .map(|name| name.eq_ignore_ascii_case(exe_name))
-                        .unwrap_or(false)
-                })
-                .ok_or_else(|| anyhow::anyhow!("Executable '{}' not found in archive", exe_name))?;
-            vec![target_exe]
-        } else {
-            // Install all executables found
-            if executables.len() > 1 {
-                println!("Installing {} executables:", executables.len());
-                for (i, exe) in executables.iter().enumerate() {
-                    println!("  {}: {}", i + 1, exe.file_name().unwrap().to_string_lossy());
-                }
+        println!("Processing GitHub repo: {}, binary: {}", source, binary_name);
+        let github_url = get_github_release_url(source, &binary_name, tag)?;
+        let filename = get_filename_from_url(&github_url);
+        (github_url, filename)
+    } else {
+        // Treat as direct URL
+        println!("Processing URL: {}", source);
+        let filename = get_filename_from_url(source);
+        (source.to_string(), filename)
+    };
+    
+    let url_hash = format!("{:x}", md5::compute(&download_url));
+    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_file_path = cache_dir.join(&cached_filename);
+    
+    let file_path = if cached_file_path.exists() {
+        println!("Found cached file: {}", cached_file_path.display());
+        cached_file_path
+    } else {
+        println!("Downloading: {}", download_url);
+        download_file(&download_url, &cached_file_path, profile)?;
+        cached_file_path
+    };
+    
+    // Extract to temp directory
+    println!("Extracting to temporary directory: {}", temp_dir.display());
+    extract_archive(&file_path, temp_dir.to_str().unwrap(), files_pattern)?;
+    
+    // Find executables in the extracted directory
+    let executables = find_executables(&temp_dir)?;
+    
+    if executables.is_empty() {
+        return Err(anyhow::anyhow!("No executables found in the extracted archive"));
+    }
+    
+    // Create ~/.local/bin directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let local_bin_dir = home_dir.join(".local").join("bin");
+    fs::create_dir_all(&local_bin_dir)
+        .with_context(|| format!("Failed to create ~/.local/bin directory: {}", local_bin_dir.display()))?;
+    
+    // Determine which executables to install
+    let executables_to_install: Vec<&std::path::PathBuf> = if let Some(exe_name) = executable {
+        // User specified an executable name
+        let target_exe = executables.iter()
+            .find(|path| {
+                path.file_stem()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.eq_ignore_ascii_case(exe_name))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| anyhow::anyhow!("Executable '{}' not found in archive", exe_name))?;
+        vec![target_exe]
+    } else {
+        // Install all executables found
+        if executables.len() > 1 {
+            println!("Installing {} executables:", executables.len());
+            for (i, exe) in executables.iter().enumerate() {
+                println!("  {}: {}", i + 1, exe.file_name().unwrap().to_string_lossy());
             }
-            executables.iter().collect()
-        };
-        
-        // Install each executable
+        }
+        executables.iter().collect()
+    };
+    
+    if no_shim {
+        // Install directly to ~/.local/bin
         let mut installed_executables = Vec::new();
         for target_exe in executables_to_install {
-            let exe_name = target_exe.file_stem()
-                .and_then(|name| name.to_str())
+            let exe_name = target_exe.file_name()
                 .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
             
-            // Create app directory in Programs
-            let app_dir = programs_dir.join(exe_name);
-            fs::create_dir_all(&app_dir)
-                .with_context(|| format!("Failed to create app directory: {}", app_dir.display()))?;
-            
-            // Copy the executable to the app directory
-            let installed_exe = app_dir.join(target_exe.file_name().unwrap());
+            // Copy the executable directly to ~/.local/bin
+            let installed_exe = local_bin_dir.join(exe_name);
             fs::copy(target_exe, &installed_exe)
                 .with_context(|| format!("Failed to copy executable to {}", installed_exe.display()))?;
             
-            println!("Installed executable to: {}", installed_exe.display());
+            // Make the file executable on Unix systems
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = fs::metadata(&installed_exe)?.permissions();
+                perms.set_mode(perms.mode() | 0o755); // Add execute permissions
+                fs::set_permissions(&installed_exe, perms)
+                    .with_context(|| format!("Failed to set executable permissions on {}", installed_exe.display()))?;
+            }
             
-            // Create shim file
-            let shim_file = shim_dir.join(format!("{}.shim", exe_name));
-            let shim_content = format!("path = {}\nargs =", installed_exe.display());
-            fs::write(&shim_file, shim_content)
-                .with_context(|| format!("Failed to create shim file: {}", shim_file.display()))?;
-            
-            // Create shim executable (copy of embedded scoop shim)
-            let shim_exe = shim_dir.join(format!("{}.exe", exe_name));
-            fs::write(&shim_exe, SCOOP_SHIM_BYTES)
-                .with_context(|| format!("Failed to create shim executable: {}", shim_exe.display()))?;
-            
-            installed_executables.push((exe_name.to_string(), installed_exe, shim_exe));
+            installed_executables.push((exe_name.to_string_lossy().to_string(), installed_exe));
         }
         
         // Clean up temp directory
@@ -1292,18 +1276,82 @@ fn install_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_
         
         // Print summary
         if installed_executables.len() == 1 {
-            let (exe_name, installed_exe, shim_exe) = &installed_executables[0];
+            let (exe_name, installed_exe) = &installed_executables[0];
             println!("Successfully installed {}!", exe_name);
             println!("Executable: {}", installed_exe.display());
-            println!("Shim: {}", shim_exe.display());
         } else {
             println!("Successfully installed {} executables!", installed_executables.len());
-            for (exe_name, installed_exe, shim_exe) in &installed_executables {
-                println!("  {}: {} -> {}", exe_name, installed_exe.display(), shim_exe.display());
+            for (exe_name, installed_exe) in &installed_executables {
+                println!("  {}: {}", exe_name, installed_exe.display());
             }
         }
-        println!("Add {} to your PATH to use the shims", shim_dir.display());
-        
-        Ok(())
+        println!("Make sure {} is in your PATH to use the executables", local_bin_dir.display());
+    } else {
+        // Create shims (Windows only)
+        #[cfg(windows)]
+        {
+            use std::env;
+            
+            // Get LOCALAPPDATA directory
+            let local_app_data = env::var("LOCALAPPDATA")
+                .with_context(|| "LOCALAPPDATA environment variable not found")?;
+            let programs_dir = Path::new(&local_app_data).join("Programs");
+            
+            // Create Programs directory if it doesn't exist
+            fs::create_dir_all(&programs_dir)
+                .with_context(|| format!("Failed to create Programs directory: {}", programs_dir.display()))?;
+            
+            // Install each executable with shims
+            let mut installed_executables = Vec::new();
+            for target_exe in executables_to_install {
+                let exe_name = target_exe.file_stem()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
+                
+                // Create app directory in Programs
+                let app_dir = programs_dir.join(exe_name);
+                fs::create_dir_all(&app_dir)
+                    .with_context(|| format!("Failed to create app directory: {}", app_dir.display()))?;
+                
+                // Copy the executable to the app directory
+                let installed_exe = app_dir.join(target_exe.file_name().unwrap());
+                fs::copy(target_exe, &installed_exe)
+                    .with_context(|| format!("Failed to copy executable to {}", installed_exe.display()))?;
+                
+                println!("Installed executable to: {}", installed_exe.display());
+                
+                // Create shim file
+                let shim_file = local_bin_dir.join(format!("{}.shim", exe_name));
+                let shim_content = format!("path = {}\nargs =", installed_exe.display());
+                fs::write(&shim_file, shim_content)
+                    .with_context(|| format!("Failed to create shim file: {}", shim_file.display()))?;
+                
+                // Create shim executable (copy of embedded scoop shim)
+                let shim_exe = local_bin_dir.join(format!("{}.exe", exe_name));
+                fs::write(&shim_exe, SCOOP_SHIM_BYTES)
+                    .with_context(|| format!("Failed to create shim executable: {}", shim_exe.display()))?;
+                
+                installed_executables.push((exe_name.to_string(), installed_exe, shim_exe));
+            }
+            
+            // Clean up temp directory
+            let _ = fs::remove_dir_all(&temp_dir);
+            
+            // Print summary
+            if installed_executables.len() == 1 {
+                let (exe_name, installed_exe, shim_exe) = &installed_executables[0];
+                println!("Successfully installed {}!", exe_name);
+                println!("Executable: {}", installed_exe.display());
+                println!("Shim: {}", shim_exe.display());
+            } else {
+                println!("Successfully installed {} executables!", installed_executables.len());
+                for (exe_name, installed_exe, shim_exe) in &installed_executables {
+                    println!("  {}: {} -> {}", exe_name, installed_exe.display(), shim_exe.display());
+                }
+            }
+            println!("Add {} to your PATH to use the shims", local_bin_dir.display());
+        }
     }
+    
+    Ok(())
 }

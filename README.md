@@ -17,6 +17,7 @@ You want to download and extract files from multiple sources - public URLs, GitH
 - **Mixed Sources**: Combine URL downloads, GitHub releases, and S3 downloads in a single recipe  
 - **Flexible Output**: Extract to directories and/or save files with custom names
 - **Direct Execution**: Download and run executables directly with the `run` command
+- **Cross-Platform Installation**: Install executables directly to `~/.local/bin` on any platform with `--no-shim`, or use Windows shims
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 
 ## Installation
@@ -46,6 +47,9 @@ zipget run BurntSushi/ripgrep -- --version
 
 # Install tools with shims (Windows only)
 zipget install google/go-jsonnet
+
+# Install tools directly (cross-platform)
+zipget install google/go-jsonnet --no-shim
 ```
 
 ### S3 Quick Start
@@ -68,7 +72,7 @@ zipget recipe s3-recipe.toml --profile my-profile
 
 ### Install Quick Start (Windows)
 ```bash
-# 1. Install a single tool with automatic binary detection
+# 1. Install a single tool with automatic binary detection (creates shims)
 zipget install google/go-jsonnet
 
 # 2. Install a specific executable from a multi-binary package
@@ -82,7 +86,52 @@ jsonnet --version
 jsonnetfmt --help
 ```
 
+### Install Quick Start (Cross-Platform)
+```bash
+# 1. Install directly to ~/.local/bin without shims (works on all platforms)
+zipget install google/go-jsonnet --no-shim
+
+# 2. Install specific executable directly
+zipget install google/go-jsonnet --exe jsonnet --no-shim
+
+# 3. Add ~/.local/bin to your PATH (one-time setup)
+export PATH="$HOME/.local/bin:$PATH"  # Linux/macOS
+$env:PATH += ";$env:USERPROFILE\.local\bin"  # Windows PowerShell
+
+# 4. Use the installed tools directly
+jsonnet --version
+jsonnetfmt --help
+```
+
 ## Commands
+
+### Install Command
+
+Install executables from packages to your local system:
+
+```bash
+# Install with shims (Windows only) - creates shims in ~/.local/bin
+zipget install sharkdp/bat
+
+# Install directly to ~/.local/bin (cross-platform)
+zipget install sharkdp/bat --no-shim
+
+# Install specific executable from multi-binary package
+zipget install google/go-jsonnet --exe jsonnet --no-shim
+
+# Install from specific release tag
+zipget install sharkdp/bat --tag v0.24.0 --no-shim
+
+# Install from direct URL
+zipget install https://example.com/tool.zip --no-shim
+
+# Install from S3 with AWS profile
+zipget install s3://my-bucket/app.zip --profile my-profile --no-shim
+```
+
+**Shims vs Direct Installation:**
+- **Shims (Windows only)**: Creates wrapper executables that can handle different versions and provide additional functionality
+- **Direct Installation (`--no-shim`)**: Copies executables directly to `~/.local/bin`, works on all platforms
 
 ### Recipe Command
 
@@ -509,6 +558,7 @@ zipget --help
 zipget recipe --help
 zipget github --help
 zipget run --help
+zipget install --help
 ```
 
 ## Dependencies
