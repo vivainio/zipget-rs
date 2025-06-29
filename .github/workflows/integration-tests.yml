@@ -56,94 +56,10 @@ jobs:
       with:
         python-version: '3.9'
     
-    - name: Run working integration tests
+    - name: Run comprehensive integration test suite
       run: |
-        echo "Running working integration test recipe..."
-        ./target/release/zipget recipe test/working-test.toml
-    
-    - name: Validate downloaded files
-      run: |
-        echo "Validating downloaded files exist..."
-        ls -la test-downloads/
-        echo "Checking file sizes..."
-        du -h test-downloads/*
-        
-        # Verify expected files exist
-        test -f test-downloads/hashibuild.zip
-        test -f test-downloads/hashibuild-filtered.zip
-        test -f test-downloads/http-test.zip
-        test -f test-downloads/modulize.zip
-        
-        echo "✅ All expected download files exist!"
-    
-    - name: Validate extracted directories
-      run: |
-        echo "Validating extracted directories..."
-        ls -la test-output/
-        
-        # Verify expected directories exist
-        test -d test-output/hashibuild
-        test -d test-output/hashibuild-filtered
-        test -d test-output/http-zip
-        test -d test-output/modulize
-        
-        echo "✅ All expected extraction directories exist!"
-    
-    - name: Validate file filtering worked
-      run: |
-        echo "Validating file pattern filtering..."
-        echo "Contents of filtered directory:"
-        find test-output/hashibuild-filtered -type f
-        
-        # Should only contain README.md due to *.md filter
-        md_count=$(find test-output/hashibuild-filtered -name "*.md" | wc -l)
-        total_count=$(find test-output/hashibuild-filtered -type f | wc -l)
-        
-        echo "Found $md_count .md files out of $total_count total files"
-        
-        if [ "$md_count" -eq "$total_count" ] && [ "$md_count" -gt 0 ]; then
-          echo "✅ File filtering worked correctly!"
-        else
-          echo "❌ File filtering failed - expected only .md files"
-          exit 1
-        fi
-    
-    - name: Test individual GitHub command
-      run: |
-        echo "Testing individual GitHub API command..."
-        ./target/release/zipget github vivainio/unxml-rs --save-as github-api-test.zip
-        
-        test -f github-api-test.zip
-        echo "✅ GitHub API command worked!"
-    
-    - name: Test caching functionality
-      run: |
-        echo "Testing cache functionality..."
-        
-        # First download (should create cache)
-        time ./target/release/zipget github vivainio/unxml-rs --save-as cache-test-1.zip
-        
-        # Second download (should use cache - should be faster)
-        time ./target/release/zipget github vivainio/unxml-rs --save-as cache-test-2.zip
-        
-        # Both files should exist and be identical
-        test -f cache-test-1.zip
-        test -f cache-test-2.zip
-        
-        if cmp -s cache-test-1.zip cache-test-2.zip; then
-          echo "✅ Cache functionality working - files are identical!"
-        else
-          echo "❌ Cache test failed - files differ"
-          exit 1
-        fi
-    
-    - name: Test HTTP download directly
-      run: |
-        echo "Testing direct HTTP download..."
-        ./target/release/zipget fetch "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip" --save-as direct-http-test.zip
-        
-        test -f direct-http-test.zip
-        echo "✅ Direct HTTP download worked!"
+        echo "Running comprehensive Python test suite..."
+        python3 test/test-suite.py
     
     - name: Final validation summary
       run: |
