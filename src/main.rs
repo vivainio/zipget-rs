@@ -5,6 +5,7 @@ use glob_match::glob_match;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use tar::Archive;
 use zip::ZipArchive;
 
@@ -66,6 +67,29 @@ enum Commands {
         /// AWS profile to use for S3 downloads
         #[arg(short, long)]
         profile: Option<String>,
+    },
+    /// Download and run an executable from a package
+    Run {
+        /// Source to download from: URL or GitHub repository (owner/repo format)
+        source: String,
+        /// Name of the binary to download from GitHub release assets (auto-detected if not specified)
+        #[arg(short, long)]
+        binary: Option<String>,
+        /// Optional tag to download specific GitHub release (defaults to latest)
+        #[arg(short, long)]
+        tag: Option<String>,
+        /// Optional glob pattern for files to extract from archives (extracts all if not specified)
+        #[arg(short = 'f', long = "files")]
+        files: Option<String>,
+        /// AWS profile to use for S3 downloads
+        #[arg(short, long)]
+        profile: Option<String>,
+        /// Executable name to run (required if multiple executables found)
+        #[arg(short = 'e', long = "exe")]
+        executable: Option<String>,
+        /// Arguments to pass to the executable
+        #[arg(last = true)]
+        args: Vec<String>,
     },
 }
 
@@ -304,6 +328,9 @@ fn main() -> Result<()> {
         }
         Commands::Fetch { url, save_as, unzip_to, files, profile } => {
             fetch_direct_url(&url, save_as.as_deref(), unzip_to.as_deref(), files.as_deref(), profile.as_deref())?;
+        }
+        Commands::Run { source, binary, tag, files, profile, executable, args } => {
+            run_package(&source, binary.as_deref(), tag.as_deref(), files.as_deref(), profile.as_deref(), executable.as_deref(), &args)?;
         }
     }
     
@@ -847,4 +874,152 @@ fn upgrade_recipe(file_path: &str) -> Result<()> {
     }
     
     Ok(())
+}
+
+fn run_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_pattern: Option<&str>, profile: Option<&str>, executable: Option<&str>, args: &[String]) -> Result<()> {
+    // Create a temporary directory for extraction
+    let temp_dir = std::env::temp_dir().join(format!("zipget-run-{}", std::process::id()));
+    fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("Failed to create temp directory: {}", temp_dir.display()))?;
+    
+    // Determine if source is a GitHub repo or direct URL
+    let is_github_repo = !source.starts_with("http") && !source.starts_with("s3://");
+    
+    let cached_file_path = if is_github_repo {
+        // Handle GitHub repository
+        let binary_name = binary.unwrap_or_else(|| {
+            let guessed = guess_binary_name();
+            println!("No binary specified for {}, guessing: {}", source, guessed);
+            Box::leak(guessed.into_boxed_str())
+        });
+        
+        let download_url = get_github_release_url(source, binary_name, tag)?;
+        
+        // Use caching mechanism
+        let cache_dir = get_cache_dir()?;
+        let filename = get_filename_from_url(&download_url);
+        let url_hash = format!("{:x}", md5::compute(&download_url));
+        let cached_filename = format!("{}_{}", url_hash, filename);
+        let cached_file_path = cache_dir.join(&cached_filename);
+        
+        if cached_file_path.exists() {
+            println!("Found cached file: {}", cached_file_path.display());
+        } else {
+            println!("Downloading: {}", download_url);
+            download_file(&download_url, &cached_file_path, profile)?;
+        }
+        
+        cached_file_path
+    } else {
+        // Handle direct URL
+        let cache_dir = get_cache_dir()?;
+        let filename = get_filename_from_url(source);
+        let url_hash = format!("{:x}", md5::compute(source));
+        let cached_filename = format!("{}_{}", url_hash, filename);
+        let cached_file_path = cache_dir.join(&cached_filename);
+        
+        if cached_file_path.exists() {
+            println!("Found cached file: {}", cached_file_path.display());
+        } else {
+            println!("Downloading: {}", source);
+            download_file(source, &cached_file_path, profile)?;
+        }
+        
+        cached_file_path
+    };
+    
+    // Extract the archive to the temporary directory
+    println!("Extracting to: {}", temp_dir.display());
+    extract_archive(&cached_file_path, temp_dir.to_str().unwrap(), files_pattern)?;
+    
+    // Find executable files in the extracted directory
+    let executables = find_executables(&temp_dir)?;
+    
+    let executable_to_run = if let Some(exe_name) = executable {
+        // User specified an executable name
+        let matching_exe = executables.iter()
+            .find(|exe| exe.file_name().unwrap_or_default().to_string_lossy() == exe_name)
+            .or_else(|| executables.iter().find(|exe| exe.to_string_lossy().contains(exe_name)))
+            .ok_or_else(|| anyhow::anyhow!("Executable '{}' not found in package", exe_name))?;
+        matching_exe.clone()
+    } else if executables.len() == 1 {
+        // Only one executable found, use it
+        executables[0].clone()
+    } else if executables.is_empty() {
+        return Err(anyhow::anyhow!("No executable files found in the package"));
+    } else {
+        // Multiple executables found, list them and require user to specify
+        println!("Multiple executables found:");
+        for exe in &executables {
+            println!("  {}", exe.file_name().unwrap_or_default().to_string_lossy());
+        }
+        return Err(anyhow::anyhow!("Multiple executables found. Please specify which one to run using --exe <name>"));
+    };
+    
+    // Run the executable
+    println!("Running executable: {}", executable_to_run.display());
+    let mut command = Command::new(&executable_to_run);
+    command.args(args);
+    
+    let status = command.status()
+        .with_context(|| format!("Failed to execute: {}", executable_to_run.display()))?;
+    
+    // Clean up temporary directory
+    fs::remove_dir_all(&temp_dir)
+        .with_context(|| format!("Failed to clean up temp directory: {}", temp_dir.display()))?;
+    
+    if !status.success() {
+        return Err(anyhow::anyhow!("Executable exited with status: {}", status));
+    }
+    
+    Ok(())
+}
+
+fn find_executables(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
+    let mut executables = Vec::new();
+    
+    fn visit_dir(dir: &Path, executables: &mut Vec<std::path::PathBuf>) -> Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                visit_dir(&path, executables)?;
+            } else if is_executable(&path)? {
+                executables.push(path);
+            }
+        }
+        Ok(())
+    }
+    
+    visit_dir(dir, &mut executables)?;
+    Ok(executables)
+}
+
+fn is_executable(path: &Path) -> Result<bool> {
+    let metadata = fs::metadata(path)?;
+    
+    // Check if it's a regular file
+    if !metadata.is_file() {
+        return Ok(false);
+    }
+    
+    // On Windows, check for .exe extension
+    #[cfg(windows)]
+    {
+        if let Some(ext) = path.extension() {
+            if ext.to_string_lossy().to_lowercase() == "exe" {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    
+    // On Unix-like systems, check for execute permission
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = metadata.permissions().mode();
+        return Ok(mode & 0o111 != 0); // Check if any execute bit is set
+    }
 }

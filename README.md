@@ -16,6 +16,7 @@ You want to download and extract files from multiple sources - public URLs, GitH
 - **Version Management**: Automatically upgrade GitHub releases to latest versions
 - **Mixed Sources**: Combine URL downloads, GitHub releases, and S3 downloads in a single recipe  
 - **Flexible Output**: Extract to directories and/or save files with custom names
+- **Direct Execution**: Download and run executables directly with the `run` command
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 
 ## Installation
@@ -95,6 +96,33 @@ zipget github sharkdp/bat windows --tag v0.24.0
 # Save to specific file path
 zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
 ```
+
+### Run Command
+
+Download and run an executable from a package with intelligent executable detection:
+
+```bash
+# Run a single executable from a GitHub release
+zipget run BurntSushi/ripgrep windows -- --version
+
+# Run a specific executable if multiple are found
+zipget run sharkdp/bat windows --exe bat -- --help
+
+# Run from a direct URL
+zipget run https://example.com/tool.zip --exe mytool -- arg1 arg2
+
+# Run from S3 with AWS profile
+zipget run s3://my-bucket/app.zip --profile my-profile --exe app -- --config config.json
+```
+
+The `run` command:
+- Downloads and caches the package (honoring existing cache)
+- Extracts the package to a temporary directory
+- Automatically finds executable files in the extracted content
+- If only one executable is found, runs it directly
+- If multiple executables are found, prompts you to specify which one using `--exe`
+- Passes all arguments after `--` to the executable
+- Cleans up temporary files after execution
 
 ## Recipe Format
 
@@ -350,6 +378,7 @@ zipget recipe your-s3-recipe.json
 5. **Download**: If not cached, the file is downloaded and stored in the cache directory
 6. **Extract**: If `unzipTo` is specified, the archive is extracted to the target directory (auto-detects ZIP and tar.gz formats)
 7. **Save**: If `saveAs` is specified, the downloaded file is copied to the specified path
+8. **Run**: The `run` command additionally extracts to a temporary directory, finds executables, and executes them with provided arguments
 
 ## Examples
 
@@ -375,6 +404,21 @@ Keep all your tools up-to-date:
 
 ```bash
 zipget recipe my_toolchain.json --upgrade
+```
+
+### Run Executable
+
+Download and run tools directly without manual extraction:
+
+```bash
+# Run ripgrep to search for text (single executable, auto-detected)
+zipget run BurntSushi/ripgrep windows -- --help
+
+# Run bat to display a file (specify executable name)
+zipget run sharkdp/bat windows --exe bat -- README.md
+
+# Run a tool from a direct URL with arguments
+zipget run https://example.com/mytool.zip --exe mytool -- --input data.txt --output result.txt
 ```
 
 ### S3 Downloads
@@ -496,6 +540,7 @@ Get help for any command:
 zipget --help
 zipget recipe --help
 zipget github --help
+zipget run --help
 ```
 
 ## Dependencies
