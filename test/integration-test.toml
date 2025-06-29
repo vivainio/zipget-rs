@@ -1,0 +1,33 @@
+# Integration Test Recipe for zipget-rs
+# Tests GitHub releases, HTTP downloads, and various archive formats
+
+[unxml-latest]
+github = { repo = "vivainio/unxml-rs" }
+unzip_to = "./test-output/unxml-latest"
+save_as = "./test-downloads/unxml-latest.zip"
+
+[unxml-specific-version]
+github = { repo = "vivainio/unxml-rs", tag = "v0.1.1" }
+unzip_to = "./test-output/unxml-v0.1.1"
+save_as = "./test-downloads/unxml-v0.1.1.zip"
+
+[unxml-windows-asset]
+github = { repo = "vivainio/unxml-rs", asset = "windows", tag = "v0.1.1" }
+unzip_to = "./test-output/unxml-windows"
+save_as = "./test-downloads/unxml-windows.zip"
+
+[small-test-zip]
+url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+unzip_to = "./test-output/small-zip"
+save_as = "./test-downloads/small-test.zip"
+
+[medium-test-zip]
+url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_100KB.zip"
+unzip_to = "./test-output/medium-zip"
+save_as = "./test-downloads/medium-test.zip"
+
+[bat-tool]
+github = { repo = "sharkdp/bat", tag = "v0.24.0" }
+unzip_to = "./test-output/bat"
+save_as = "./test-downloads/bat.zip"
+files = "*.exe" 

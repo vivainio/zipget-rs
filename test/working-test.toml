@@ -1,0 +1,23 @@
+# Working Integration Test Recipe
+# Tests core functionality that works reliably
+
+[http-zip-test]
+url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+unzip_to = "./test-output/http-zip"
+save_as = "./test-downloads/http-test.zip"
+
+[github-source-zip]
+url = "https://github.com/vivainio/hashibuild/archive/refs/heads/master.zip"
+unzip_to = "./test-output/hashibuild"
+save_as = "./test-downloads/hashibuild.zip"
+
+[github-release-archive]
+url = "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip"
+unzip_to = "./test-output/modulize"
+save_as = "./test-downloads/modulize.zip"
+
+[archive-with-pattern]
+url = "https://github.com/vivainio/hashibuild/archive/refs/heads/master.zip"
+unzip_to = "./test-output/hashibuild-filtered"
+save_as = "./test-downloads/hashibuild-filtered.zip"
+files = "*.md" 

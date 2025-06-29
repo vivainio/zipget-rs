@@ -1,5 +1,7 @@
 # zipget-rs
 
+[![Integration Tests](https://github.com/vivainio/zipget-rs/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/vivainio/zipget-rs/actions/workflows/integration-tests.yml)
+
 A Rust clone of [zipget](https://github.com/vivainio/zipget) - a powerful tool for downloading and extracting files from multiple sources including URLs, GitHub releases, and **AWS S3 buckets**, with intelligent caching and advanced features.
 
 ## Problem

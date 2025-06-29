@@ -371,18 +371,30 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
     } else if let Some(github) = &fetch_item.github {
-        let binary_name = github.asset.as_deref().unwrap_or_else(|| {
-            let guessed = guess_binary_name();
-            println!("No binary specified for {}, guessing: {}", github.repo, guessed);
-            Box::leak(guessed.into_boxed_str())
-        });
+        println!("Processing GitHub repo: {}", github.repo);
         
-        println!("Processing GitHub repo: {}, binary: {}", github.repo, binary_name);
+        let (download_url, filename) = if let Some(asset_name) = &github.asset {
+            // User specified asset name - use the existing logic
+            println!("Using specified asset: {}", asset_name);
+            let github_url = get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
+            let filename = get_filename_from_url(&github_url);
+            (github_url, filename)
+        } else {
+            // No asset specified - use intelligent asset detection
+            println!("No asset specified, analyzing available assets...");
+            let (release, best_asset) = get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+            
+            // Find the matching asset URL
+            let asset = release.assets.iter()
+                .find(|asset| asset.name == best_asset)
+                .ok_or_else(|| anyhow::anyhow!("Selected asset '{}' not found in release assets", best_asset))?;
+            
+            println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
+            let filename = get_filename_from_url(&asset.browser_download_url);
+            (asset.browser_download_url.clone(), filename)
+        };
         
-        // Get the release download URL
-        let github_url = get_github_release_url(&github.repo, binary_name, github.tag.as_deref())?;
-        let filename = get_filename_from_url(&github_url);
-        (github_url, filename)
+        (download_url, filename)
     } else {
         return Err(anyhow::anyhow!("FetchItem must have either 'url' or 'github' specified"));
     };
@@ -390,46 +402,38 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
     let url_hash = format!("{:x}", md5::compute(&download_url));
     let cached_filename = format!("{}_{}", url_hash, filename);
     let cached_file_path = cache_dir.join(&cached_filename);
-    
+
+    // Use the appropriate profile - item-specific profile overrides global profile
+    let profile = fetch_item.profile.as_deref().or(global_profile);
+
     let file_path = if cached_file_path.exists() {
         println!("Found cached file: {}", cached_file_path.display());
         cached_file_path
     } else {
-        // Download the file
         println!("Downloading: {}", download_url);
-        // Use item's profile if specified, otherwise use global profile
-        let profile_to_use = fetch_item.profile.as_deref().or(global_profile);
-        download_file(&download_url, &cached_file_path, profile_to_use)?;
+        download_file(&download_url, &cached_file_path, profile)?;
         cached_file_path
     };
-    
-    // Save as specified file if requested
+
+    // Save the file if save_as is specified
     if let Some(save_as) = &fetch_item.save_as {
         let save_path = Path::new(save_as);
         if let Some(parent) = save_path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
         }
+        
         fs::copy(&file_path, save_path)
-            .with_context(|| format!("Failed to save file as: {}", save_as))?;
+            .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
         println!("Saved as: {}", save_as);
     }
-    
-        // Extract if unzip_to is specified
+
+    // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {}", unzip_to);
         extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
     }
-
-    // Install executables if install_exes is specified
-    if let Some(install_exes) = &fetch_item.install_exes {
-        let extract_dir = fetch_item.unzip_to.as_deref()
-            .ok_or_else(|| anyhow::anyhow!("install_exes requires unzip_to to be specified"))?;
-        
-        let no_shim = fetch_item.no_shim.unwrap_or(false);
-        install_executables_from_recipe(extract_dir, install_exes, no_shim, &fetch_item.unzip_to)?;
-    }
-
+    
     Ok(())
 }
 
