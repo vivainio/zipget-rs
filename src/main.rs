@@ -1372,6 +1372,30 @@ fn is_executable(path: &Path) -> Result<bool> {
     }
 }
 
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst).with_context(|| {
+        format!("Failed to create destination directory: {}", dst.display())
+    })?;
+    
+    for entry in fs::read_dir(src).with_context(|| {
+        format!("Failed to read source directory: {}", src.display())
+    })? {
+        let entry = entry.with_context(|| "Failed to read directory entry")?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        
+        if src_path.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path).with_context(|| {
+                format!("Failed to copy {} to {}", src_path.display(), dst_path.display())
+            })?;
+        }
+    }
+    
+    Ok(())
+}
+
 fn install_executables_from_recipe(
     extract_dir: &str,
     install_exes: &[String],
@@ -1751,7 +1775,33 @@ fn install_package(
                 )
             })?;
 
-            // Install each executable with shims
+            // Determine the app directory name based on source
+            let app_name = if source.contains('/') && !source.starts_with("http") {
+                // GitHub repo: use owner_repo format
+                source.replace('/', "_")
+            } else {
+                // URL: try to extract a reasonable name from the filename
+                let filename = get_filename_from_url(source);
+                Path::new(&filename)
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("zipget_install")
+                    .to_string()
+            };
+
+            // Create app directory in Programs
+            let app_dir = programs_dir.join(&app_name);
+            fs::create_dir_all(&app_dir).with_context(|| {
+                format!("Failed to create app directory: {}", app_dir.display())
+            })?;
+
+            // Copy all files from temp directory to app directory
+            println!("Installing all files to: {}", app_dir.display());
+            copy_dir_all(&temp_dir, &app_dir).with_context(|| {
+                format!("Failed to copy files to {}", app_dir.display())
+            })?;
+
+            // Install shims for each executable
             let mut installed_executables = Vec::new();
             for target_exe in executables_to_install {
                 let exe_name = target_exe
@@ -1759,19 +1809,13 @@ fn install_package(
                     .and_then(|name| name.to_str())
                     .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
 
-                // Create app directory in Programs
-                let app_dir = programs_dir.join(exe_name);
-                fs::create_dir_all(&app_dir).with_context(|| {
-                    format!("Failed to create app directory: {}", app_dir.display())
+                // Find the installed executable path (relative to temp_dir)
+                let relative_path = target_exe.strip_prefix(&temp_dir).with_context(|| {
+                    format!("Failed to get relative path for {}", target_exe.display())
                 })?;
+                let installed_exe = app_dir.join(relative_path);
 
-                // Copy the executable to the app directory
-                let installed_exe = app_dir.join(target_exe.file_name().unwrap());
-                fs::copy(target_exe, &installed_exe).with_context(|| {
-                    format!("Failed to copy executable to {}", installed_exe.display())
-                })?;
-
-                println!("Installed executable to: {}", installed_exe.display());
+                println!("Creating shim for executable: {}", installed_exe.display());
 
                 // Create shim file
                 let shim_file = local_bin_dir.join(format!("{}.shim", exe_name));
