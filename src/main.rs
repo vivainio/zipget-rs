@@ -672,20 +672,82 @@ fn guess_binary_name() -> String {
     }
 }
 
-fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
-    let binary_name = binary_name.unwrap_or_else(|| {
-        let guessed = guess_binary_name();
-        println!("No binary specified for {}, guessing: {}", repo, guessed);
-        Box::leak(guessed.into_boxed_str())
-    });
+fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    
+    // Define OS patterns (in order of preference)
+    let os_patterns = match os {
+        "windows" => vec!["windows", "win", "pc-windows", "msvc"],
+        "linux" => vec!["linux", "unknown-linux", "gnu"],
+        "macos" => vec!["darwin", "macos", "apple"],
+        _ => vec![os],
+    };
+    
+    // Define architecture patterns (in order of preference) 
+    let arch_patterns = match arch {
+        "x86_64" => vec!["x86_64", "amd64", "x64", "64"],
+        "x86" => vec!["x86", "i386", "i686", "32", "win32"],
+        "aarch64" => vec!["aarch64", "arm64", "armv8"],
+        "arm" => vec!["arm", "armv7", "armhf"],
+        _ => vec![arch],
+    };
+    
+    let mut best_score = 0;
+    let mut best_asset = None;
+    
+    for asset in assets {
+        let name_lower = asset.name.to_lowercase();
+        let mut score = 0;
+        
+        // Score OS match (higher weight)
+        for (i, pattern) in os_patterns.iter().enumerate() {
+            if name_lower.contains(pattern) {
+                score += 100 - (i * 10); // First match gets 100, second gets 90, etc.
+                break;
+            }
+        }
+        
+        // Score architecture match (medium weight)
+        for (i, pattern) in arch_patterns.iter().enumerate() {
+            if name_lower.contains(pattern) {
+                score += 50 - (i * 5); // First match gets 50, second gets 45, etc.
+                break;
+            }
+        }
+        
+        // Bonus for common binary extensions/patterns
+        if name_lower.ends_with(".zip") || name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tgz") {
+            score += 10;
+        }
+        
+        // Penalty for source packages or unwanted patterns
+        if name_lower.contains("src") || name_lower.contains("source") {
+            score -= 50;
+        }
+        if name_lower.contains("debug") || name_lower.contains("symbols") {
+            score -= 30;
+        }
+        
+        println!("  {} -> score: {}", asset.name, score);
+        
+        if score > best_score {
+            best_score = score;
+            best_asset = Some(asset.name.clone());
+        }
+    }
+    
+    best_asset
+}
 
+fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, String)> {
     let api_url = if let Some(tag) = tag {
         format!("https://api.github.com/repos/{}/releases/tags/{}", repo, tag)
     } else {
         format!("https://api.github.com/repos/{}/releases/latest", repo)
     };
     
-    println!("Fetching release info from: {}", api_url);
+    println!("Analyzing available binaries from: {}", api_url);
     
     let response = ureq::get(&api_url)
         .set("User-Agent", "zipget-rs")
@@ -698,6 +760,52 @@ fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&
     
     let release: GitHubRelease = response.into_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
+
+    println!("Found {} assets in release '{}':", release.assets.len(), release.name);
+    for asset in &release.assets {
+        println!("  - {}", asset.name);
+    }
+    
+    let best_match = if let Some(best_match) = find_best_matching_binary(&release.assets) {
+        println!("Selected best match: {}", best_match);
+        best_match
+    } else {
+        // Fallback to old behavior
+        println!("No good match found, falling back to basic guess");
+        guess_binary_name()
+    };
+    
+    Ok((release, best_match))
+}
+
+fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&str>, tag: Option<&str>, unzip_to: Option<&str>, files_pattern: Option<&str>) -> Result<()> {
+    let (release, binary_name) = if let Some(name) = binary_name {
+        // User specified binary name, fetch release separately  
+        let api_url = if let Some(tag) = tag {
+            format!("https://api.github.com/repos/{}/releases/tags/{}", repo, tag)
+        } else {
+            format!("https://api.github.com/repos/{}/releases/latest", repo)
+        };
+        
+        println!("Fetching release info from: {}", api_url);
+        
+        let response = ureq::get(&api_url)
+            .set("User-Agent", "zipget-rs")
+            .call()
+            .with_context(|| format!("Failed to fetch release info for {}", repo))?;
+        
+        if response.status() != 200 {
+            return Err(anyhow::anyhow!("GitHub API request failed with status: {}", response.status()));
+        }
+        
+        let release: GitHubRelease = response.into_json()
+            .with_context(|| "Failed to parse GitHub release JSON")?;
+            
+        (release, name.to_string())
+    } else {
+        println!("No binary specified for {}, analyzing available assets...", repo);
+        get_best_binary_from_release(repo, tag)?
+    };
     
     println!("Found release: {} ({})", release.name, release.tag_name);
     
@@ -914,13 +1022,15 @@ fn run_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_patt
     
     let cached_file_path = if is_github_repo {
         // Handle GitHub repository
-        let binary_name = binary.unwrap_or_else(|| {
-            let guessed = guess_binary_name();
-            println!("No binary specified for {}, guessing: {}", source, guessed);
-            Box::leak(guessed.into_boxed_str())
-        });
+        let binary_name = if let Some(name) = binary {
+            name.to_string()
+        } else {
+            println!("No binary specified for {}, analyzing available assets...", source);
+            let (_release, best_match) = get_best_binary_from_release(source, tag)?;
+            best_match
+        };
         
-        let download_url = get_github_release_url(source, binary_name, tag)?;
+        let download_url = get_github_release_url(source, &binary_name, tag)?;
         
         // Use caching mechanism
         let cache_dir = get_cache_dir()?;
@@ -1079,14 +1189,16 @@ fn install_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_
         let cache_dir = get_cache_dir()?;
         let (download_url, filename) = if source.contains('/') && !source.starts_with("http") {
             // Treat as GitHub repo
-            let binary_name = binary.unwrap_or_else(|| {
-                let guessed = guess_binary_name();
-                println!("No binary specified for {}, guessing: {}", source, guessed);
-                Box::leak(guessed.into_boxed_str())
-            });
+            let binary_name = if let Some(name) = binary {
+                name.to_string()
+            } else {
+                println!("No binary specified for {}, analyzing available assets...", source);
+                let (_release, best_match) = get_best_binary_from_release(source, tag)?;
+                best_match
+            };
             
             println!("Processing GitHub repo: {}, binary: {}", source, binary_name);
-            let github_url = get_github_release_url(source, binary_name, tag)?;
+            let github_url = get_github_release_url(source, &binary_name, tag)?;
             let filename = get_filename_from_url(&github_url);
             (github_url, filename)
         } else {
