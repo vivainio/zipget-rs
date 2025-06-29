@@ -40,7 +40,7 @@ enum Commands {
         /// GitHub repository in format "owner/repo"
         repo: String,
         /// Name of the binary to download from release assets (auto-detected if not specified)
-        #[arg(value_name = "BINARY")]
+        #[arg(short = 'a', long = "asset")]
         binary: Option<String>,
         /// Optional path to save the downloaded file (defaults to current directory with original filename)
         #[arg(short = 's', long = "save-as")]

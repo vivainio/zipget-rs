@@ -38,8 +38,14 @@ The binary will be available at `target/release/zipget`.
 # Download from HTTP
 zipget recipe demo_recipe.json
 
-# Download from GitHub releases  
-zipget github sharkdp/bat windows --unzip-to ./tools
+# Download from GitHub releases (auto-detects best binary for your platform)
+zipget github sharkdp/bat --unzip-to ./tools
+
+# Download and run executables directly
+zipget run BurntSushi/ripgrep -- --version
+
+# Install tools with shims (Windows only)
+zipget install google/go-jsonnet
 ```
 
 ### S3 Quick Start
@@ -65,6 +71,22 @@ zipget recipe s3-recipe.json
 zipget recipe s3-recipe.json --profile my-profile
 ```
 
+### Install Quick Start (Windows)
+```bash
+# 1. Install a single tool with automatic binary detection
+zipget install google/go-jsonnet
+
+# 2. Install a specific executable from a multi-binary package
+zipget install google/go-jsonnet --exe jsonnet
+
+# 3. Add ~/.local/bin to your PATH (one-time setup)
+$env:PATH += ";$env:USERPROFILE\.local\bin"
+
+# 4. Use the installed tools directly
+jsonnet --version
+jsonnetfmt --help
+```
+
 ## Commands
 
 ### Recipe Command
@@ -84,17 +106,20 @@ zipget recipe my_recipe.json --upgrade
 
 ### GitHub Command
 
-Download the latest release binary from a GitHub repository:
+Download the latest release binary from a GitHub repository with intelligent asset detection:
 
 ```bash
-# Download latest release
-zipget github sharkdp/bat windows
+# Download latest release (auto-detects best binary for your platform)
+zipget github sharkdp/bat
 
 # Download specific tagged release
-zipget github sharkdp/bat windows --tag v0.24.0
+zipget github sharkdp/bat --tag v0.24.0
 
 # Save to specific file path
-zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
+zipget github BurntSushi/ripgrep --save-as ./tools/ripgrep.zip
+
+# Manually specify asset if needed (rarely required)
+zipget github sharkdp/bat --asset windows-x86_64
 ```
 
 ### Run Command
@@ -102,11 +127,11 @@ zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
 Download and run an executable from a package with intelligent executable detection:
 
 ```bash
-# Run a single executable from a GitHub release
-zipget run BurntSushi/ripgrep windows -- --version
+# Run a single executable from a GitHub release (auto-detects best binary)
+zipget run BurntSushi/ripgrep -- --version
 
 # Run a specific executable if multiple are found
-zipget run sharkdp/bat windows --exe bat -- --help
+zipget run sharkdp/bat --exe bat -- --help
 
 # Run from a direct URL
 zipget run https://example.com/tool.zip --exe mytool -- arg1 arg2
@@ -144,7 +169,6 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
         {
             "github": {
                 "repo": "sharkdp/bat",
-                "binary": "windows",
                 "tag": "v0.24.0"
             },
             "unzipTo": "./tools",
@@ -153,8 +177,7 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
         },
         {
             "github": {
-                "repo": "BurntSushi/ripgrep",
-                "binary": "windows"
+                "repo": "BurntSushi/ripgrep"
             },
             "saveAs": "./tools/ripgrep.zip"
         }
@@ -179,13 +202,12 @@ Zipget uses JSON recipe files to define what to download and where to put it. Re
 
 ### Latest Releases
 
-Download the latest release without specifying a tag:
+Download the latest release with automatic asset detection:
 
 ```json
 {
     "github": {
-        "repo": "sharkdp/bat",
-        "binary": "windows"
+        "repo": "sharkdp/bat"
     }
 }
 ```
@@ -198,7 +220,20 @@ Pin to a specific release tag:
 {
     "github": {
         "repo": "sharkdp/bat",
-        "binary": "windows", 
+        "tag": "v0.24.0"
+    }
+}
+```
+
+### Manual Asset Selection (Optional)
+
+Specify a particular asset if automatic detection doesn't meet your needs:
+
+```json
+{
+    "github": {
+        "repo": "sharkdp/bat",
+        "binary": "windows-x86_64",
         "tag": "v0.24.0"
     }
 }
@@ -392,10 +427,10 @@ zipget recipe demo_recipe.json
 
 ### GitHub Download
 
-Download the latest ripgrep for Windows:
+Download the latest ripgrep with automatic platform detection:
 
 ```bash
-zipget github BurntSushi/ripgrep windows --save-as ./tools/ripgrep.zip
+zipget github BurntSushi/ripgrep --save-as ./tools/ripgrep.zip
 ```
 
 ### Recipe Upgrade
@@ -408,14 +443,14 @@ zipget recipe my_toolchain.json --upgrade
 
 ### Run Executable
 
-Download and run tools directly without manual extraction:
+Download and run tools directly with intelligent platform and executable detection:
 
 ```bash
-# Run ripgrep to search for text (single executable, auto-detected)
-zipget run BurntSushi/ripgrep windows -- --help
+# Run ripgrep to search for text (auto-detects best binary and executable)
+zipget run BurntSushi/ripgrep -- --help
 
-# Run bat to display a file (specify executable name)
-zipget run sharkdp/bat windows --exe bat -- README.md
+# Run bat to display a file (specify executable name if multiple found)
+zipget run sharkdp/bat --exe bat -- README.md
 
 # Run a tool from a direct URL with arguments
 zipget run https://example.com/mytool.zip --exe mytool -- --input data.txt --output result.txt
@@ -514,8 +549,7 @@ Common glob patterns:
         },
         {
             "github": {
-                "repo": "sharkdp/bat",
-                "binary": "windows"
+                "repo": "sharkdp/bat"
             },
             "unzipTo": "./tools",
             "files": "*.exe"
@@ -523,7 +557,6 @@ Common glob patterns:
         {
             "github": {
                 "repo": "BurntSushi/ripgrep",
-                "binary": "windows",
                 "tag": "14.1.0"
             },
             "saveAs": "./tools/ripgrep.zip"
