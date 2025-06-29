@@ -3,3 +3,9 @@
 /downloads
 /test-output
 /test-downloads
+
+# Test zip files
+*.zip
+
+# Downloaded tools
+/tools
