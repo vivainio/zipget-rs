@@ -134,6 +134,10 @@ struct FetchItem {
     files: Option<String>,
     /// Optional AWS profile for S3 downloads
     profile: Option<String>,
+    /// List of executables to install from the extracted directory (supports glob patterns)
+    install_exes: Option<Vec<String>>,
+    /// Install executable directly without creating shims (defaults to false on Windows)
+    no_shim: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -411,12 +415,21 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         println!("Saved as: {}", save_as);
     }
     
-    // Extract if unzip_to is specified
+        // Extract if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {}", unzip_to);
         extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
     }
-    
+
+    // Install executables if install_exes is specified
+    if let Some(install_exes) = &fetch_item.install_exes {
+        let extract_dir = fetch_item.unzip_to.as_deref()
+            .ok_or_else(|| anyhow::anyhow!("install_exes requires unzip_to to be specified"))?;
+        
+        let no_shim = fetch_item.no_shim.unwrap_or(false);
+        install_executables_from_recipe(extract_dir, install_exes, no_shim, &fetch_item.unzip_to)?;
+    }
+
     Ok(())
 }
 
@@ -1154,6 +1167,154 @@ fn is_executable(path: &Path) -> Result<bool> {
         let mode = metadata.permissions().mode();
         return Ok(mode & 0o111 != 0); // Check if any execute bit is set
     }
+}
+
+fn install_executables_from_recipe(extract_dir: &str, install_exes: &[String], no_shim: bool, target_dir: &Option<String>) -> Result<()> {
+    let extract_path = Path::new(extract_dir);
+    
+    // Find all executables in the extracted directory
+    let all_executables = find_executables(extract_path)?;
+    
+    if all_executables.is_empty() {
+        return Err(anyhow::anyhow!("No executables found in extracted directory: {}", extract_dir));
+    }
+    
+    // Filter executables based on the install_exes list (supports glob patterns)
+    let mut executables_to_install = Vec::new();
+    for exe_pattern in install_exes {
+        let mut pattern_matches = Vec::new();
+        
+        for exe_path in &all_executables {
+            let exe_name = exe_path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            let exe_stem = exe_path.file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            
+            // Check if the pattern matches either the full filename or just the stem
+            if glob_match(exe_pattern, exe_name) || glob_match(exe_pattern, exe_stem) {
+                pattern_matches.push(exe_path);
+            }
+        }
+        
+        if pattern_matches.is_empty() {
+            return Err(anyhow::anyhow!("No executables matching pattern '{}' found in extracted directory", exe_pattern));
+        }
+        
+        executables_to_install.extend(pattern_matches);
+    }
+    
+    // Remove duplicates while preserving order
+    executables_to_install.sort();
+    executables_to_install.dedup();
+    
+    // Determine installation directory
+    // When install_exes is used with unzip_to, use unzip_to as the real target location
+    let install_dir = if let Some(target) = target_dir {
+        Path::new(target).to_path_buf()
+    } else {
+        // Fallback to default locations
+        if no_shim {
+            let home_dir = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+            home_dir.join(".local").join("bin")
+        } else {
+            #[cfg(windows)]
+            {
+                let local_app_data = std::env::var("LOCALAPPDATA")
+                    .with_context(|| "LOCALAPPDATA environment variable not found")?;
+                Path::new(&local_app_data).join("Programs").to_path_buf()
+            }
+            #[cfg(not(windows))]
+            {
+                return Err(anyhow::anyhow!("Shims are only supported on Windows. Use no_shim = true for direct installation."));
+            }
+        }
+    };
+    
+    // Create installation directory
+    fs::create_dir_all(&install_dir)
+        .with_context(|| format!("Failed to create installation directory: {}", install_dir.display()))?;
+    
+    // Install executables
+    let mut installed_executables = Vec::new();
+    for target_exe in executables_to_install {
+        let exe_name = target_exe.file_name()
+            .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
+        
+        // Copy the executable to the installation directory
+        let installed_exe = install_dir.join(exe_name);
+        fs::copy(target_exe, &installed_exe)
+            .with_context(|| format!("Failed to copy executable to {}", installed_exe.display()))?;
+        
+        // Make the file executable on Unix systems
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&installed_exe)?.permissions();
+            perms.set_mode(perms.mode() | 0o755); // Add execute permissions
+            fs::set_permissions(&installed_exe, perms)
+                .with_context(|| format!("Failed to set executable permissions on {}", installed_exe.display()))?;
+        }
+        
+        installed_executables.push((exe_name.to_string_lossy().to_string(), installed_exe));
+    }
+    
+    // Create shims if needed (Windows only and not no_shim)
+    if !no_shim {
+        #[cfg(windows)]
+        {
+            let home_dir = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+            let local_bin_dir = home_dir.join(".local").join("bin");
+            fs::create_dir_all(&local_bin_dir)
+                .with_context(|| format!("Failed to create ~/.local/bin directory: {}", local_bin_dir.display()))?;
+            
+            for (exe_name, installed_exe) in &installed_executables {
+                let exe_stem = Path::new(exe_name).file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(exe_name);
+                
+                // Create shim file
+                let shim_file = local_bin_dir.join(format!("{}.shim", exe_stem));
+                let shim_content = format!("path = {}\nargs =", installed_exe.display());
+                fs::write(&shim_file, shim_content)
+                    .with_context(|| format!("Failed to create shim file: {}", shim_file.display()))?;
+                
+                // Create shim executable (copy of embedded scoop shim)
+                let shim_exe = local_bin_dir.join(format!("{}.exe", exe_stem));
+                fs::write(&shim_exe, SCOOP_SHIM_BYTES)
+                    .with_context(|| format!("Failed to create shim executable: {}", shim_exe.display()))?;
+                
+                println!("Created shim: {} -> {}", shim_exe.display(), installed_exe.display());
+            }
+            
+            println!("Add {} to your PATH to use the shims", local_bin_dir.display());
+        }
+        #[cfg(not(windows))]
+        {
+            return Err(anyhow::anyhow!("Shims are only supported on Windows. Use no_shim = true for direct installation."));
+        }
+    }
+    
+    // Print summary
+    if installed_executables.len() == 1 {
+        let (exe_name, installed_exe) = &installed_executables[0];
+        println!("Successfully installed {}!", exe_name);
+        println!("Executable: {}", installed_exe.display());
+    } else {
+        println!("Successfully installed {} executables!", installed_executables.len());
+        for (exe_name, installed_exe) in &installed_executables {
+            println!("  {}: {}", exe_name, installed_exe.display());
+        }
+    }
+    
+    if no_shim || target_dir.is_some() {
+        println!("Installation directory: {}", install_dir.display());
+    }
+    
+    Ok(())
 }
 
 fn install_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_pattern: Option<&str>, profile: Option<&str>, executable: Option<&str>, no_shim: bool) -> Result<()> {

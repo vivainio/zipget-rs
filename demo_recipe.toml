@@ -16,6 +16,32 @@ save_as = "./downloads/hashibuild-master.zip"
 github = { repo = "BurntSushi/ripgrep", asset = "linux", tag = "14.1.1" }
 unzip_to = "./downloads"
 files = "rg"
+install_exes = ["rg"]
+no_shim = true
+
+[bat]
+github = { repo = "sharkdp/bat", asset = "linux" }
+unzip_to = "./tools/bat"
+install_exes = ["bat"]
+
+[fd-find]
+github = { repo = "sharkdp/fd", asset = "linux" }
+unzip_to = "./tools/fd"
+install_exes = ["fd"]
+no_shim = true
+
+# Example: Install all .exe files using glob pattern (Windows)
+[windows-tools]
+url = "https://example.com/tools.zip"
+unzip_to = "./tools/windows"
+install_exes = ["*.exe"]
+no_shim = true
+
+# Example: Install all executables starting with "tool-" using glob pattern
+[tool-suite]
+url = "https://example.com/toolsuite.tar.gz"
+unzip_to = "./tools/suite"
+install_exes = ["tool-*", "util-*"]
 
 [internal-tool]
 url = "s3://company-private-bucket/internal/tool.tar.gz"
