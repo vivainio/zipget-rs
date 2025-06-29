@@ -9,6 +9,10 @@ use std::process::Command;
 use tar::Archive;
 use zip::ZipArchive;
 
+// Embed the scoop shim executable at compile time
+#[cfg(windows)]
+static SCOOP_SHIM_BYTES: &[u8] = include_bytes!("../shims/shim_scoop.exe");
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -90,6 +94,26 @@ enum Commands {
         /// Arguments to pass to the executable
         #[arg(last = true)]
         args: Vec<String>,
+    },
+    /// Install a binary to local Programs folder and create a shim (Windows only)
+    Install {
+        /// Source to download from: URL or GitHub repository (owner/repo format)
+        source: String,
+        /// Name of the binary to download from GitHub release assets (auto-detected if not specified)
+        #[arg(short, long)]
+        binary: Option<String>,
+        /// Optional tag to download specific GitHub release (defaults to latest)
+        #[arg(short, long)]
+        tag: Option<String>,
+        /// Optional glob pattern for files to extract from archives (extracts all if not specified)
+        #[arg(short = 'f', long = "files")]
+        files: Option<String>,
+        /// AWS profile to use for S3 downloads
+        #[arg(short, long)]
+        profile: Option<String>,
+        /// Executable name to install (installs all executables if not specified)
+        #[arg(short = 'e', long = "exe")]
+        executable: Option<String>,
     },
 }
 
@@ -331,6 +355,9 @@ fn main() -> Result<()> {
         }
         Commands::Run { source, binary, tag, files, profile, executable, args } => {
             run_package(&source, binary.as_deref(), tag.as_deref(), files.as_deref(), profile.as_deref(), executable.as_deref(), &args)?;
+        }
+        Commands::Install { source, binary, tag, files, profile, executable } => {
+            install_package(&source, binary.as_deref(), tag.as_deref(), files.as_deref(), profile.as_deref(), executable.as_deref())?;
         }
     }
     
@@ -674,9 +701,9 @@ fn fetch_github_release(repo: &str, binary_name: Option<&str>, save_as: Option<&
     
     println!("Found release: {} ({})", release.name, release.tag_name);
     
-    // Find the matching asset
+    // Find the matching asset (case-insensitive)
     let asset = release.assets.iter()
-        .find(|asset| asset.name.contains(binary_name))
+        .find(|asset| asset.name.to_lowercase().contains(&binary_name.to_lowercase()))
         .ok_or_else(|| anyhow::anyhow!("Binary '{}' not found in release assets", binary_name))?;
     
     println!("Found asset: {} ({} bytes)", asset.name, asset.size);
@@ -794,9 +821,9 @@ fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>) -> R
     let release: GitHubRelease = response.into_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
     
-    // Find the matching asset
+    // Find the matching asset (case-insensitive)
     let asset = release.assets.iter()
-        .find(|asset| asset.name.contains(binary_name))
+        .find(|asset| asset.name.to_lowercase().contains(&binary_name.to_lowercase()))
         .ok_or_else(|| anyhow::anyhow!("Binary '{}' not found in release assets", binary_name))?;
     
     Ok(asset.browser_download_url.clone())
@@ -1021,5 +1048,158 @@ fn is_executable(path: &Path) -> Result<bool> {
         use std::os::unix::fs::PermissionsExt;
         let mode = metadata.permissions().mode();
         return Ok(mode & 0o111 != 0); // Check if any execute bit is set
+    }
+}
+
+fn install_package(source: &str, binary: Option<&str>, tag: Option<&str>, files_pattern: Option<&str>, profile: Option<&str>, executable: Option<&str>) -> Result<()> {
+    #[cfg(not(windows))]
+    {
+        return Err(anyhow::anyhow!("The install command is only available on Windows"));
+    }
+    
+    #[cfg(windows)]
+    {
+        use std::env;
+        
+        // Get LOCALAPPDATA directory
+        let local_app_data = env::var("LOCALAPPDATA")
+            .with_context(|| "LOCALAPPDATA environment variable not found")?;
+        let programs_dir = Path::new(&local_app_data).join("Programs");
+        
+        // Create Programs directory if it doesn't exist
+        fs::create_dir_all(&programs_dir)
+            .with_context(|| format!("Failed to create Programs directory: {}", programs_dir.display()))?;
+        
+        // Create a temporary directory for extraction
+        let temp_dir = std::env::temp_dir().join(format!("zipget-install-{}", std::process::id()));
+        fs::create_dir_all(&temp_dir)
+            .with_context(|| format!("Failed to create temp directory: {}", temp_dir.display()))?;
+        
+        // Download and extract to temp directory
+        let cache_dir = get_cache_dir()?;
+        let (download_url, filename) = if source.contains('/') && !source.starts_with("http") {
+            // Treat as GitHub repo
+            let binary_name = binary.unwrap_or_else(|| {
+                let guessed = guess_binary_name();
+                println!("No binary specified for {}, guessing: {}", source, guessed);
+                Box::leak(guessed.into_boxed_str())
+            });
+            
+            println!("Processing GitHub repo: {}, binary: {}", source, binary_name);
+            let github_url = get_github_release_url(source, binary_name, tag)?;
+            let filename = get_filename_from_url(&github_url);
+            (github_url, filename)
+        } else {
+            // Treat as direct URL
+            println!("Processing URL: {}", source);
+            let filename = get_filename_from_url(source);
+            (source.to_string(), filename)
+        };
+        
+        let url_hash = format!("{:x}", md5::compute(&download_url));
+        let cached_filename = format!("{}_{}", url_hash, filename);
+        let cached_file_path = cache_dir.join(&cached_filename);
+        
+        let file_path = if cached_file_path.exists() {
+            println!("Found cached file: {}", cached_file_path.display());
+            cached_file_path
+        } else {
+            println!("Downloading: {}", download_url);
+            download_file(&download_url, &cached_file_path, profile)?;
+            cached_file_path
+        };
+        
+        // Extract to temp directory
+        println!("Extracting to temporary directory: {}", temp_dir.display());
+        extract_archive(&file_path, temp_dir.to_str().unwrap(), files_pattern)?;
+        
+        // Find executables in the extracted directory
+        let executables = find_executables(&temp_dir)?;
+        
+        if executables.is_empty() {
+            return Err(anyhow::anyhow!("No executables found in the extracted archive"));
+        }
+        
+        // Create shim directory (~/.local/bin)
+        let home_dir = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+        let shim_dir = home_dir.join(".local").join("bin");
+        fs::create_dir_all(&shim_dir)
+            .with_context(|| format!("Failed to create shim directory: {}", shim_dir.display()))?;
+        
+        // Determine which executables to install
+        let executables_to_install: Vec<&std::path::PathBuf> = if let Some(exe_name) = executable {
+            // User specified an executable name
+            let target_exe = executables.iter()
+                .find(|path| {
+                    path.file_stem()
+                        .and_then(|name| name.to_str())
+                        .map(|name| name.eq_ignore_ascii_case(exe_name))
+                        .unwrap_or(false)
+                })
+                .ok_or_else(|| anyhow::anyhow!("Executable '{}' not found in archive", exe_name))?;
+            vec![target_exe]
+        } else {
+            // Install all executables found
+            if executables.len() > 1 {
+                println!("Installing {} executables:", executables.len());
+                for (i, exe) in executables.iter().enumerate() {
+                    println!("  {}: {}", i + 1, exe.file_name().unwrap().to_string_lossy());
+                }
+            }
+            executables.iter().collect()
+        };
+        
+        // Install each executable
+        let mut installed_executables = Vec::new();
+        for target_exe in executables_to_install {
+            let exe_name = target_exe.file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
+            
+            // Create app directory in Programs
+            let app_dir = programs_dir.join(exe_name);
+            fs::create_dir_all(&app_dir)
+                .with_context(|| format!("Failed to create app directory: {}", app_dir.display()))?;
+            
+            // Copy the executable to the app directory
+            let installed_exe = app_dir.join(target_exe.file_name().unwrap());
+            fs::copy(target_exe, &installed_exe)
+                .with_context(|| format!("Failed to copy executable to {}", installed_exe.display()))?;
+            
+            println!("Installed executable to: {}", installed_exe.display());
+            
+            // Create shim file
+            let shim_file = shim_dir.join(format!("{}.shim", exe_name));
+            let shim_content = format!("path = {}\nargs =", installed_exe.display());
+            fs::write(&shim_file, shim_content)
+                .with_context(|| format!("Failed to create shim file: {}", shim_file.display()))?;
+            
+            // Create shim executable (copy of embedded scoop shim)
+            let shim_exe = shim_dir.join(format!("{}.exe", exe_name));
+            fs::write(&shim_exe, SCOOP_SHIM_BYTES)
+                .with_context(|| format!("Failed to create shim executable: {}", shim_exe.display()))?;
+            
+            installed_executables.push((exe_name.to_string(), installed_exe, shim_exe));
+        }
+        
+        // Clean up temp directory
+        let _ = fs::remove_dir_all(&temp_dir);
+        
+        // Print summary
+        if installed_executables.len() == 1 {
+            let (exe_name, installed_exe, shim_exe) = &installed_executables[0];
+            println!("Successfully installed {}!", exe_name);
+            println!("Executable: {}", installed_exe.display());
+            println!("Shim: {}", shim_exe.display());
+        } else {
+            println!("Successfully installed {} executables!", installed_executables.len());
+            for (exe_name, installed_exe, shim_exe) in &installed_executables {
+                println!("  {}: {} -> {}", exe_name, installed_exe.display(), shim_exe.display());
+            }
+        }
+        println!("Add {} to your PATH to use the shims", shim_dir.display());
+        
+        Ok(())
     }
 }
