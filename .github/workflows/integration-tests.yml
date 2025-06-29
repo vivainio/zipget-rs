@@ -64,12 +64,26 @@ jobs:
     - name: Final validation summary
       run: |
         echo "=== FINAL VALIDATION SUMMARY ==="
-        echo "Downloaded files count: $(ls -1 test-downloads/*.zip 2>/dev/null | wc -l)"
-        echo "Extracted directories count: $(ls -1d test-output/*/ 2>/dev/null | wc -l)"
-        echo "Total downloaded size: $(du -sh test-downloads/ | cut -f1)"
-        echo "Total extracted size: $(du -sh test-output/ | cut -f1)"
+        if [ -d "test-downloads" ]; then
+          echo "Downloaded files count: $(ls -1 test-downloads/*.zip 2>/dev/null | wc -l)"
+          echo "Total downloaded size: $(du -sh test-downloads/ 2>/dev/null | cut -f1 || echo 'N/A')"
+        else
+          echo "Downloaded files count: 0 (test-downloads directory not found)"
+        fi
+        
+        if [ -d "test-output" ]; then
+          echo "Extracted directories count: $(ls -1d test-output/*/ 2>/dev/null | wc -l)"
+          echo "Total extracted size: $(du -sh test-output/ 2>/dev/null | cut -f1 || echo 'N/A')"
+        else
+          echo "Extracted directories count: 0 (test-output directory not found)"
+        fi
+        
         echo ""
-        echo "All integration tests completed successfully! 🎉"
+        if [ -d "test-downloads" ] && [ -d "test-output" ]; then
+          echo "Integration tests completed! 🎉"
+        else
+          echo "Integration tests may have failed - check test output above ⚠️"
+        fi
     
     - name: Upload test artifacts on failure
       uses: actions/upload-artifact@v4
@@ -87,17 +101,41 @@ jobs:
       run: |
         echo "## Integration Test Report" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Downloaded Files" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        ls -lah test-downloads/ >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -d "test-downloads" ]; then
+          echo "### Downloaded Files" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -lah test-downloads/ 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No files found" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### Downloaded Files" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "test-downloads/ directory not found - test may have failed" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        fi
+        
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Extracted Directories" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        ls -lah test-output/ >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -d "test-output" ]; then
+          echo "### Extracted Directories" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -lah test-output/ 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No directories found" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### Extracted Directories" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "test-output/ directory not found - test may have failed" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        fi
+        
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Total Download Size" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Summary" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        du -sh test-downloads/ test-output/ >> $GITHUB_STEP_SUMMARY
+        if [ -d "test-downloads" ] && [ -d "test-output" ]; then
+          echo "✅ Test directories found - integration tests appear to have run"
+          du -sh test-downloads/ test-output/ 2>/dev/null || echo "Could not determine directory sizes"
+        else
+          echo "❌ Missing test directories - integration tests may have failed"
+          echo "Check the 'Run comprehensive integration test suite' step above for details"
+        fi
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY 
