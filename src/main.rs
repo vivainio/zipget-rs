@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use glob_match::glob_match;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -22,9 +23,9 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Process a recipe file to download and extract packages
+    /// Process a TOML recipe file to download and extract packages
     Recipe {
-        /// Recipe file path
+        /// TOML recipe file path
         file: String,
         /// Optional tag to filter items by
         tag: Option<String>,
@@ -117,23 +118,17 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-struct Recipe {
-    fetch: Vec<FetchItem>,
-}
+// TOML recipe format: HashMap where key is the section name (becomes tag)
+type Recipe = HashMap<String, FetchItem>;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct FetchItem {
     url: Option<String>,
     github: Option<GitHubFetch>,
-    #[serde(rename = "unzipTo")]
     unzip_to: Option<String>,
-    #[serde(rename = "saveAs")]
     save_as: Option<String>,
-    /// Optional glob pattern for files to extract from ZIP (extracts all if not specified)
+    /// Optional glob pattern for files to extract from archives (extracts all if not specified)
     files: Option<String>,
-    /// Optional tags for filtering
-    tags: Option<Vec<String>>,
     /// Optional AWS profile for S3 downloads
     profile: Option<String>,
 }
@@ -141,7 +136,7 @@ struct FetchItem {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct GitHubFetch {
     repo: String,
-    binary: Option<String>,
+    asset: Option<String>,
     tag: Option<String>,
 }
 
@@ -280,20 +275,17 @@ fn main() -> Result<()> {
                 let recipe_content = fs::read_to_string(&file)
                     .with_context(|| format!("Failed to read recipe file: {}", file))?;
                 
-                let recipe: Recipe = serde_json::from_str(&recipe_content)
-                    .with_context(|| "Failed to parse recipe JSON")?;
+                let recipe: Recipe = toml::from_str(&recipe_content)
+                    .with_context(|| "Failed to parse recipe TOML")?;
                 
                 // Filter items by tag if specified
                 let items_to_process: Vec<FetchItem> = if let Some(filter_tag) = &tag {
-                    recipe.fetch.into_iter()
-                        .filter(|item| {
-                            item.tags.as_ref()
-                                .map(|tags| tags.contains(filter_tag))
-                                .unwrap_or(false)
-                        })
+                    recipe.into_iter()
+                        .filter(|(k, _)| k.contains(filter_tag))
+                        .map(|(_, v)| v)
                         .collect()
                 } else {
-                    recipe.fetch
+                    recipe.into_iter().map(|(_, v)| v).collect()
                 };
                 
                 if items_to_process.is_empty() {
@@ -372,7 +364,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
     } else if let Some(github) = &fetch_item.github {
-        let binary_name = github.binary.as_deref().unwrap_or_else(|| {
+        let binary_name = github.asset.as_deref().unwrap_or_else(|| {
             let guessed = guess_binary_name();
             println!("No binary specified for {}, guessing: {}", github.repo, guessed);
             Box::leak(guessed.into_boxed_str())
@@ -416,7 +408,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         println!("Saved as: {}", save_as);
     }
     
-    // Extract if unzipTo is specified
+    // Extract if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {}", unzip_to);
         extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
@@ -961,18 +953,18 @@ fn upgrade_recipe(file_path: &str) -> Result<()> {
     let recipe_content = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read recipe file: {}", file_path))?;
     
-    let mut recipe: Recipe = serde_json::from_str(&recipe_content)
-        .with_context(|| "Failed to parse recipe JSON")?;
+    let mut recipe: Recipe = toml::from_str(&recipe_content)
+        .with_context(|| "Failed to parse recipe TOML")?;
     
     let mut updated = false;
     
-    for fetch_item in &mut recipe.fetch {
+    for fetch_item in recipe.values_mut() {
         if let Some(github) = &mut fetch_item.github {
             // Ensure binary field has a value for consistent processing
-            if github.binary.is_none() {
+            if github.asset.is_none() {
                 let guessed = guess_binary_name();
                 println!("No binary specified for {}, setting to: {}", github.repo, guessed);
-                github.binary = Some(guessed);
+                github.asset = Some(guessed);
                 updated = true;
             }
             
@@ -997,7 +989,7 @@ fn upgrade_recipe(file_path: &str) -> Result<()> {
     }
     
     if updated {
-        let updated_content = serde_json::to_string_pretty(&recipe)
+        let updated_content = toml::to_string_pretty(&recipe)
             .with_context(|| "Failed to serialize updated recipe")?;
         
         fs::write(file_path, updated_content)

@@ -1,0 +1,23 @@
+[s3-app]
+url = "s3://my-tools-bucket/releases/app-v1.2.3.zip"
+unzip_to = "./downloads/s3-tools"
+files = "*.exe"
+
+[modulize]
+url = "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip"
+unzip_to = "./downloads"
+
+[hashibuild]
+url = "https://github.com/vivainio/hashibuild/archive/refs/heads/master.zip"
+unzip_to = "./downloads"
+save_as = "./downloads/hashibuild-master.zip"
+
+[ripgrep]
+github = { repo = "BurntSushi/ripgrep", asset = "linux", tag = "14.1.1" }
+unzip_to = "./downloads"
+files = "rg"
+
+[internal-tool]
+url = "s3://company-private-bucket/internal/tool.tar.gz"
+unzip_to = "./downloads/internal-tools"
+profile = "company-profile"
