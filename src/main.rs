@@ -174,7 +174,7 @@ fn is_s3_url(url: &str) -> bool {
 }
 
 fn download_s3_file(s3_url: &str, local_path: &Path, profile: Option<&str>) -> Result<()> {
-    println!("Downloading from S3: {}", s3_url);
+    println!("Downloading from S3: {s3_url}");
 
     // Check if AWS CLI is available
     let aws_version = std::process::Command::new("aws").arg("--version").output();
@@ -217,7 +217,7 @@ fn download_s3_file(s3_url: &str, local_path: &Path, profile: Option<&str>) -> R
 
     // Add profile if specified
     if let Some(profile_name) = profile {
-        println!("Using AWS profile: {}", profile_name);
+        println!("Using AWS profile: {profile_name}");
         cmd.arg("--profile").arg(profile_name);
     }
 
@@ -292,7 +292,7 @@ fn main() -> Result<()> {
                 upgrade_recipe(&file)?;
             } else {
                 let recipe_content = fs::read_to_string(&file)
-                    .with_context(|| format!("Failed to read recipe file: {}", file))?;
+                    .with_context(|| format!("Failed to read recipe file: {file}"))?;
 
                 let recipe: Recipe = toml::from_str(&recipe_content)
                     .with_context(|| "Failed to parse recipe TOML")?;
@@ -305,12 +305,12 @@ fn main() -> Result<()> {
                         .map(|(_, v)| v)
                         .collect()
                 } else {
-                    recipe.into_iter().map(|(_, v)| v).collect()
+                    recipe.into_values().collect()
                 };
 
                 if items_to_process.is_empty() {
                     if let Some(filter_tag) = &tag {
-                        println!("No items found with tag: {}", filter_tag);
+                        println!("No items found with tag: {filter_tag}");
                     } else {
                         println!("No items to process in recipe");
                     }
@@ -448,7 +448,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
     let cache_dir = get_cache_dir()?;
 
     let (download_url, filename) = if let Some(url) = &fetch_item.url {
-        println!("Processing URL: {}", url);
+        println!("Processing URL: {url}");
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
     } else if let Some(github) = &fetch_item.github {
@@ -456,7 +456,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
 
         let (download_url, filename) = if let Some(asset_name) = &github.asset {
             // User specified asset name - use the existing logic
-            println!("Using specified asset: {}", asset_name);
+            println!("Using specified asset: {asset_name}");
             let github_url =
                 get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
             let filename = get_filename_from_url(&github_url);
@@ -492,7 +492,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
     };
 
     let url_hash = format!("{:x}", md5::compute(&download_url));
-    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
     // Use the appropriate profile - item-specific profile overrides global profile
@@ -502,7 +502,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         println!("Found cached file: {}", cached_file_path.display());
         cached_file_path
     } else {
-        println!("Downloading: {}", download_url);
+        println!("Downloading: {download_url}");
         download_file(&download_url, &cached_file_path, profile)?;
         cached_file_path
     };
@@ -517,12 +517,12 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
 
         fs::copy(&file_path, save_path)
             .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
-        println!("Saved as: {}", save_as);
+        println!("Saved as: {save_as}");
     }
 
     // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
-        println!("Extracting to: {}", unzip_to);
+        println!("Extracting to: {unzip_to}");
         extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
     }
 
@@ -535,7 +535,7 @@ fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {
     } else {
         let response = ureq::get(url)
             .call()
-            .with_context(|| format!("Failed to download: {}", url))?;
+            .with_context(|| format!("Failed to download: {url}"))?;
 
         if response.status() != 200 {
             return Err(anyhow::anyhow!(
@@ -598,14 +598,14 @@ fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) ->
     let mut archive = ZipArchive::new(file).with_context(|| "Failed to read zip archive")?;
 
     fs::create_dir_all(extract_to)
-        .with_context(|| format!("Failed to create extraction directory: {}", extract_to))?;
+        .with_context(|| format!("Failed to create extraction directory: {extract_to}"))?;
 
     let mut extracted_count = 0;
 
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
-            .with_context(|| format!("Failed to access zip entry {}", i))?;
+            .with_context(|| format!("Failed to access zip entry {i}"))?;
 
         // Check if file matches the glob pattern (if specified)
         if let Some(pattern) = file_pattern {
@@ -656,11 +656,10 @@ fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) ->
 
     if let Some(pattern) = file_pattern {
         println!(
-            "Extracted {} files matching pattern '{}'",
-            extracted_count, pattern
+            "Extracted {extracted_count} files matching pattern '{pattern}'"
         );
     } else {
-        println!("Extracted {} files", extracted_count);
+        println!("Extracted {extracted_count} files");
     }
     Ok(())
 }
@@ -673,7 +672,7 @@ fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>)
     let mut archive = Archive::new(tar);
 
     fs::create_dir_all(extract_to)
-        .with_context(|| format!("Failed to create extraction directory: {}", extract_to))?;
+        .with_context(|| format!("Failed to create extraction directory: {extract_to}"))?;
 
     let mut extracted_count = 0;
 
@@ -721,11 +720,10 @@ fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>)
 
     if let Some(pattern) = file_pattern {
         println!(
-            "Extracted {} files matching pattern '{}'",
-            extracted_count, pattern
+            "Extracted {extracted_count} files matching pattern '{pattern}'"
         );
     } else {
-        println!("Extracted {} files", extracted_count);
+        println!("Extracted {extracted_count} files");
     }
     Ok(())
 }
@@ -758,11 +756,11 @@ fn extract_archive(
 fn get_filename_from_url(url: &str) -> String {
     if url.starts_with("s3://") {
         // Extract filename from S3 URL: s3://bucket/path/to/file.zip -> file.zip
-        url.split('/').last().unwrap_or("download").to_string()
+        url.split('/').next_back().unwrap_or("download").to_string()
     } else {
         // Existing HTTP URL logic - handle query parameters
         url.split('/')
-            .last()
+            .next_back()
             .unwrap_or("download")
             .split('?')
             .next()
@@ -870,19 +868,18 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
 fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, String)> {
     let api_url = if let Some(tag) = tag {
         format!(
-            "https://api.github.com/repos/{}/releases/tags/{}",
-            repo, tag
+            "https://api.github.com/repos/{repo}/releases/tags/{tag}"
         )
     } else {
-        format!("https://api.github.com/repos/{}/releases/latest", repo)
+        format!("https://api.github.com/repos/{repo}/releases/latest")
     };
 
-    println!("Analyzing available binaries from: {}", api_url);
+    println!("Analyzing available binaries from: {api_url}");
 
     let response = ureq::get(&api_url)
         .set("User-Agent", "zipget-rs")
         .call()
-        .with_context(|| format!("Failed to fetch release info for {}", repo))?;
+        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
 
     if response.status() != 200 {
         return Err(anyhow::anyhow!(
@@ -905,7 +902,7 @@ fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHub
     }
 
     let best_match = if let Some(best_match) = find_best_matching_binary(&release.assets) {
-        println!("Selected best match: {}", best_match);
+        println!("Selected best match: {best_match}");
         best_match
     } else {
         // Fallback to old behavior
@@ -928,19 +925,18 @@ fn fetch_github_release(
         // User specified binary name, fetch release separately
         let api_url = if let Some(tag) = tag {
             format!(
-                "https://api.github.com/repos/{}/releases/tags/{}",
-                repo, tag
+                "https://api.github.com/repos/{repo}/releases/tags/{tag}"
             )
         } else {
-            format!("https://api.github.com/repos/{}/releases/latest", repo)
+            format!("https://api.github.com/repos/{repo}/releases/latest")
         };
 
-        println!("Fetching release info from: {}", api_url);
+        println!("Fetching release info from: {api_url}");
 
         let response = ureq::get(&api_url)
             .set("User-Agent", "zipget-rs")
             .call()
-            .with_context(|| format!("Failed to fetch release info for {}", repo))?;
+            .with_context(|| format!("Failed to fetch release info for {repo}"))?;
 
         if response.status() != 200 {
             return Err(anyhow::anyhow!(
@@ -956,8 +952,7 @@ fn fetch_github_release(
         (release, name.to_string())
     } else {
         println!(
-            "No binary specified for {}, analyzing available assets...",
-            repo
+            "No binary specified for {repo}, analyzing available assets..."
         );
         get_best_binary_from_release(repo, tag)?
     };
@@ -984,7 +979,7 @@ fn fetch_github_release(
     let filename = get_filename_from_url(download_url);
 
     let url_hash = format!("{:x}", md5::compute(download_url));
-    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
     let file_path = if cached_file_path.exists() {
@@ -992,7 +987,7 @@ fn fetch_github_release(
         cached_file_path
     } else {
         // Download the file
-        println!("Downloading: {}", download_url);
+        println!("Downloading: {download_url}");
         download_file(download_url, &cached_file_path, None)?;
         cached_file_path
     };
@@ -1005,8 +1000,8 @@ fn fetch_github_release(
                 .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
         }
         fs::copy(&file_path, save_path)
-            .with_context(|| format!("Failed to save file as: {}", save_as))?;
-        println!("Saved as: {}", save_as);
+            .with_context(|| format!("Failed to save file as: {save_as}"))?;
+        println!("Saved as: {save_as}");
     } else {
         // If no save_as specified, copy to current directory with original filename
         let output_path = Path::new(".").join(&filename);
@@ -1017,7 +1012,7 @@ fn fetch_github_release(
 
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
-        println!("Extracting to: {}", unzip_to);
+        println!("Extracting to: {unzip_to}");
         extract_archive(&file_path, unzip_to, files_pattern)?;
     }
 
@@ -1031,14 +1026,14 @@ fn fetch_direct_url(
     files_pattern: Option<&str>,
     profile: Option<&str>,
 ) -> Result<()> {
-    println!("Fetching from URL: {}", url);
+    println!("Fetching from URL: {url}");
 
     // Use caching mechanism (same as fetch_github_release)
     let cache_dir = get_cache_dir()?;
     let filename = get_filename_from_url(url);
 
     let url_hash = format!("{:x}", md5::compute(url));
-    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
     let file_path = if cached_file_path.exists() {
@@ -1046,7 +1041,7 @@ fn fetch_direct_url(
         cached_file_path
     } else {
         // Download the file
-        println!("Downloading: {}", url);
+        println!("Downloading: {url}");
         download_file(url, &cached_file_path, profile)?;
         cached_file_path
     };
@@ -1059,8 +1054,8 @@ fn fetch_direct_url(
                 .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
         }
         fs::copy(&file_path, save_path)
-            .with_context(|| format!("Failed to save file as: {}", save_as))?;
-        println!("Saved as: {}", save_as);
+            .with_context(|| format!("Failed to save file as: {save_as}"))?;
+        println!("Saved as: {save_as}");
     } else {
         // If no save_as specified, copy to current directory with original filename
         let output_path = Path::new(".").join(&filename);
@@ -1071,7 +1066,7 @@ fn fetch_direct_url(
 
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
-        println!("Extracting to: {}", unzip_to);
+        println!("Extracting to: {unzip_to}");
         extract_archive(&file_path, unzip_to, files_pattern)?;
     }
 
@@ -1081,17 +1076,16 @@ fn fetch_direct_url(
 fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>) -> Result<String> {
     let api_url = if let Some(tag) = tag {
         format!(
-            "https://api.github.com/repos/{}/releases/tags/{}",
-            repo, tag
+            "https://api.github.com/repos/{repo}/releases/tags/{tag}"
         )
     } else {
-        format!("https://api.github.com/repos/{}/releases/latest", repo)
+        format!("https://api.github.com/repos/{repo}/releases/latest")
     };
 
     let response = ureq::get(&api_url)
         .set("User-Agent", "zipget-rs")
         .call()
-        .with_context(|| format!("Failed to fetch release info for {}", repo))?;
+        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
 
     if response.status() != 200 {
         return Err(anyhow::anyhow!(
@@ -1120,12 +1114,12 @@ fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>) -> R
 }
 
 fn get_latest_github_tag(repo: &str) -> Result<String> {
-    let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+    let api_url = format!("https://api.github.com/repos/{repo}/releases/latest");
 
     let response = ureq::get(&api_url)
         .set("User-Agent", "zipget-rs")
         .call()
-        .with_context(|| format!("Failed to fetch latest release for {}", repo))?;
+        .with_context(|| format!("Failed to fetch latest release for {repo}"))?;
 
     if response.status() != 200 {
         return Err(anyhow::anyhow!(
@@ -1142,10 +1136,10 @@ fn get_latest_github_tag(repo: &str) -> Result<String> {
 }
 
 fn upgrade_recipe(file_path: &str) -> Result<()> {
-    println!("Upgrading recipe: {}", file_path);
+    println!("Upgrading recipe: {file_path}");
 
     let recipe_content = fs::read_to_string(file_path)
-        .with_context(|| format!("Failed to read recipe file: {}", file_path))?;
+        .with_context(|| format!("Failed to read recipe file: {file_path}"))?;
 
     let mut recipe: Recipe =
         toml::from_str(&recipe_content).with_context(|| "Failed to parse recipe TOML")?;
@@ -1171,15 +1165,15 @@ fn upgrade_recipe(file_path: &str) -> Result<()> {
                 Ok(latest_tag) => {
                     let current_tag = github.tag.as_deref().unwrap_or("latest");
                     if github.tag.is_none() || github.tag.as_ref().unwrap() != &latest_tag {
-                        println!("  {} -> {}", current_tag, latest_tag);
+                        println!("  {current_tag} -> {latest_tag}");
                         github.tag = Some(latest_tag);
                         updated = true;
                     } else {
-                        println!("  {} (already latest)", current_tag);
+                        println!("  {current_tag} (already latest)");
                     }
                 }
                 Err(e) => {
-                    println!("  Failed to get latest version: {}", e);
+                    println!("  Failed to get latest version: {e}");
                 }
             }
         }
@@ -1190,7 +1184,7 @@ fn upgrade_recipe(file_path: &str) -> Result<()> {
             .with_context(|| "Failed to serialize updated recipe")?;
 
         fs::write(file_path, updated_content)
-            .with_context(|| format!("Failed to write updated recipe to {}", file_path))?;
+            .with_context(|| format!("Failed to write updated recipe to {file_path}"))?;
 
         println!("Recipe updated successfully!");
     } else {
@@ -1223,8 +1217,7 @@ fn run_package(
             name.to_string()
         } else {
             println!(
-                "No binary specified for {}, analyzing available assets...",
-                source
+                "No binary specified for {source}, analyzing available assets..."
             );
             let (_release, best_match) = get_best_binary_from_release(source, tag)?;
             best_match
@@ -1236,13 +1229,13 @@ fn run_package(
         let cache_dir = get_cache_dir()?;
         let filename = get_filename_from_url(&download_url);
         let url_hash = format!("{:x}", md5::compute(&download_url));
-        let cached_filename = format!("{}_{}", url_hash, filename);
+        let cached_filename = format!("{url_hash}_{filename}");
         let cached_file_path = cache_dir.join(&cached_filename);
 
         if cached_file_path.exists() {
             println!("Found cached file: {}", cached_file_path.display());
         } else {
-            println!("Downloading: {}", download_url);
+            println!("Downloading: {download_url}");
             download_file(&download_url, &cached_file_path, profile)?;
         }
 
@@ -1252,13 +1245,13 @@ fn run_package(
         let cache_dir = get_cache_dir()?;
         let filename = get_filename_from_url(source);
         let url_hash = format!("{:x}", md5::compute(source));
-        let cached_filename = format!("{}_{}", url_hash, filename);
+        let cached_filename = format!("{url_hash}_{filename}");
         let cached_file_path = cache_dir.join(&cached_filename);
 
         if cached_file_path.exists() {
             println!("Found cached file: {}", cached_file_path.display());
         } else {
-            println!("Downloading: {}", source);
+            println!("Downloading: {source}");
             download_file(source, &cached_file_path, profile)?;
         }
 
@@ -1360,7 +1353,7 @@ fn is_executable(path: &Path) -> Result<bool> {
                 return Ok(true);
             }
         }
-        return Ok(false);
+        Ok(false)
     }
 
     // On Unix-like systems, check for execute permission
@@ -1399,196 +1392,7 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-fn install_executables_from_recipe(
-    extract_dir: &str,
-    install_exes: &[String],
-    no_shim: bool,
-    target_dir: &Option<String>,
-) -> Result<()> {
-    let extract_path = Path::new(extract_dir);
 
-    // Find all executables in the extracted directory
-    let all_executables = find_executables(extract_path)?;
-
-    if all_executables.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No executables found in extracted directory: {}",
-            extract_dir
-        ));
-    }
-
-    // Filter executables based on the install_exes list (supports glob patterns)
-    let mut executables_to_install = Vec::new();
-    for exe_pattern in install_exes {
-        let mut pattern_matches = Vec::new();
-
-        for exe_path in &all_executables {
-            let exe_name = exe_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("");
-            let exe_stem = exe_path
-                .file_stem()
-                .and_then(|name| name.to_str())
-                .unwrap_or("");
-
-            // Check if the pattern matches either the full filename or just the stem
-            if glob_match(exe_pattern, exe_name) || glob_match(exe_pattern, exe_stem) {
-                pattern_matches.push(exe_path);
-            }
-        }
-
-        if pattern_matches.is_empty() {
-            return Err(anyhow::anyhow!(
-                "No executables matching pattern '{}' found in extracted directory",
-                exe_pattern
-            ));
-        }
-
-        executables_to_install.extend(pattern_matches);
-    }
-
-    // Remove duplicates while preserving order
-    executables_to_install.sort();
-    executables_to_install.dedup();
-
-    // Determine installation directory
-    // When install_exes is used with unzip_to, use unzip_to as the real target location
-    let install_dir = if let Some(target) = target_dir {
-        Path::new(target).to_path_buf()
-    } else {
-        // Fallback to default locations
-        if no_shim {
-            let home_dir =
-                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-            home_dir.join(".local").join("bin")
-        } else {
-            #[cfg(windows)]
-            {
-                let local_app_data = std::env::var("LOCALAPPDATA")
-                    .with_context(|| "LOCALAPPDATA environment variable not found")?;
-                Path::new(&local_app_data).join("Programs").to_path_buf()
-            }
-            #[cfg(not(windows))]
-            {
-                return Err(anyhow::anyhow!(
-                    "Shims are only supported on Windows. Use no_shim = true for direct installation."
-                ));
-            }
-        }
-    };
-
-    // Create installation directory
-    fs::create_dir_all(&install_dir).with_context(|| {
-        format!(
-            "Failed to create installation directory: {}",
-            install_dir.display()
-        )
-    })?;
-
-    // Install executables
-    let mut installed_executables = Vec::new();
-    for target_exe in executables_to_install {
-        let exe_name = target_exe
-            .file_name()
-            .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
-
-        // Copy the executable to the installation directory
-        let installed_exe = install_dir.join(exe_name);
-        fs::copy(target_exe, &installed_exe)
-            .with_context(|| format!("Failed to copy executable to {}", installed_exe.display()))?;
-
-        // Make the file executable on Unix systems
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&installed_exe)?.permissions();
-            perms.set_mode(perms.mode() | 0o755); // Add execute permissions
-            fs::set_permissions(&installed_exe, perms).with_context(|| {
-                format!(
-                    "Failed to set executable permissions on {}",
-                    installed_exe.display()
-                )
-            })?;
-        }
-
-        installed_executables.push((exe_name.to_string_lossy().to_string(), installed_exe));
-    }
-
-    // Create shims if needed (Windows only and not no_shim)
-    if !no_shim {
-        #[cfg(windows)]
-        {
-            let home_dir =
-                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-            let local_bin_dir = home_dir.join(".local").join("bin");
-            fs::create_dir_all(&local_bin_dir).with_context(|| {
-                format!(
-                    "Failed to create ~/.local/bin directory: {}",
-                    local_bin_dir.display()
-                )
-            })?;
-
-            for (exe_name, installed_exe) in &installed_executables {
-                let exe_stem = Path::new(exe_name)
-                    .file_stem()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or(exe_name);
-
-                // Create shim file
-                let shim_file = local_bin_dir.join(format!("{}.shim", exe_stem));
-                let shim_content = format!("path = {}\nargs =", installed_exe.display());
-                fs::write(&shim_file, shim_content).with_context(|| {
-                    format!("Failed to create shim file: {}", shim_file.display())
-                })?;
-
-                // Create shim executable (copy of embedded scoop shim)
-                let shim_exe = local_bin_dir.join(format!("{}.exe", exe_stem));
-                fs::write(&shim_exe, SCOOP_SHIM_BYTES).with_context(|| {
-                    format!("Failed to create shim executable: {}", shim_exe.display())
-                })?;
-
-                println!(
-                    "Created shim: {} -> {}",
-                    shim_exe.display(),
-                    installed_exe.display()
-                );
-            }
-
-            println!(
-                "Add {} to your PATH to use the shims",
-                local_bin_dir.display()
-            );
-        }
-        #[cfg(not(windows))]
-        {
-            return Err(anyhow::anyhow!(
-                "Shims are only supported on Windows. Use no_shim = true for direct installation."
-            ));
-        }
-    }
-
-    // Print summary
-    if installed_executables.len() == 1 {
-        let (exe_name, installed_exe) = &installed_executables[0];
-        println!("Successfully installed {}!", exe_name);
-        println!("Executable: {}", installed_exe.display());
-    } else {
-        println!(
-            "Successfully installed {} executables!",
-            installed_executables.len()
-        );
-        for (exe_name, installed_exe) in &installed_executables {
-            println!("  {}: {}", exe_name, installed_exe.display());
-        }
-    }
-
-    if no_shim || target_dir.is_some() {
-        println!("Installation directory: {}", install_dir.display());
-    }
-
-    Ok(())
-}
 
 fn install_package(
     source: &str,
@@ -1621,36 +1425,34 @@ fn install_package(
             name.to_string()
         } else {
             println!(
-                "No binary specified for {}, analyzing available assets...",
-                source
+                "No binary specified for {source}, analyzing available assets..."
             );
             let (_release, best_match) = get_best_binary_from_release(source, tag)?;
             best_match
         };
 
         println!(
-            "Processing GitHub repo: {}, binary: {}",
-            source, binary_name
+            "Processing GitHub repo: {source}, binary: {binary_name}"
         );
         let github_url = get_github_release_url(source, &binary_name, tag)?;
         let filename = get_filename_from_url(&github_url);
         (github_url, filename)
     } else {
         // Treat as direct URL
-        println!("Processing URL: {}", source);
+        println!("Processing URL: {source}");
         let filename = get_filename_from_url(source);
         (source.to_string(), filename)
     };
 
     let url_hash = format!("{:x}", md5::compute(&download_url));
-    let cached_filename = format!("{}_{}", url_hash, filename);
+    let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
     let file_path = if cached_file_path.exists() {
         println!("Found cached file: {}", cached_file_path.display());
         cached_file_path
     } else {
-        println!("Downloading: {}", download_url);
+        println!("Downloading: {download_url}");
         download_file(&download_url, &cached_file_path, profile)?;
         cached_file_path
     };
@@ -1744,7 +1546,7 @@ fn install_package(
         // Print summary
         if installed_executables.len() == 1 {
             let (exe_name, installed_exe) = &installed_executables[0];
-            println!("Successfully installed {}!", exe_name);
+            println!("Successfully installed {exe_name}!");
             println!("Executable: {}", installed_exe.display());
         } else {
             println!(
@@ -1820,14 +1622,14 @@ fn install_package(
                 println!("Creating shim for executable: {}", installed_exe.display());
 
                 // Create shim file
-                let shim_file = local_bin_dir.join(format!("{}.shim", exe_name));
+                let shim_file = local_bin_dir.join(format!("{exe_name}.shim"));
                 let shim_content = format!("path = {}\nargs =", installed_exe.display());
                 fs::write(&shim_file, shim_content).with_context(|| {
                     format!("Failed to create shim file: {}", shim_file.display())
                 })?;
 
                 // Create shim executable (copy of embedded scoop shim)
-                let shim_exe = local_bin_dir.join(format!("{}.exe", exe_name));
+                let shim_exe = local_bin_dir.join(format!("{exe_name}.exe"));
                 fs::write(&shim_exe, SCOOP_SHIM_BYTES).with_context(|| {
                     format!("Failed to create shim executable: {}", shim_exe.display())
                 })?;
@@ -1841,7 +1643,7 @@ fn install_package(
             // Print summary
             if installed_executables.len() == 1 {
                 let (exe_name, installed_exe, shim_exe) = &installed_executables[0];
-                println!("Successfully installed {}!", exe_name);
+                println!("Successfully installed {exe_name}!");
                 println!("Executable: {}", installed_exe.display());
                 println!("Shim: {}", shim_exe.display());
             } else {
