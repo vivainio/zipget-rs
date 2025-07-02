@@ -1347,10 +1347,11 @@ fn is_executable(path: &Path) -> Result<bool> {
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = metadata.permissions().mode();
-        return Ok(mode & 0o111 != 0); // Check if any execute bit is set
+        Ok(mode & 0o111 != 0) // Check if any execute bit is set
     }
 }
 
+#[cfg(windows)]
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)
         .with_context(|| format!("Failed to create destination directory: {}", dst.display()))?;
@@ -1378,6 +1379,7 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn clean_archive_name_for_directory(archive_name: &str) -> String {
     // Common platform identifiers to remove
     let platform_patterns = [
@@ -1451,6 +1453,7 @@ fn clean_archive_name_for_directory(archive_name: &str) -> String {
     }
 }
 
+#[cfg(windows)]
 fn is_version_like(part: &str) -> bool {
     // Check for common version patterns
     // x.y.z, x.y, vx.y.z, x.y.z-alpha, etc.
@@ -1504,6 +1507,7 @@ fn is_version_like(part: &str) -> bool {
     dot_count > 0 && has_digit_after_dot
 }
 
+#[cfg(windows)]
 fn is_platform_identifier(part: &str, platform_patterns: &[&str]) -> bool {
     platform_patterns
         .iter()
