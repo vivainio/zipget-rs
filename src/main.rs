@@ -1394,6 +1394,113 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 
 
 
+fn clean_archive_name_for_directory(archive_name: &str) -> String {
+    // Common platform identifiers to remove
+    let platform_patterns = [
+        // Architecture patterns
+        "x86_64", "amd64", "i386", "i686", "arm64", "aarch64", "armv7", "armv6",
+        // OS patterns
+        "windows", "linux", "darwin", "macos", "freebsd", "openbsd", "netbsd",
+        // Toolchain patterns  
+        "pc-windows-msvc", "pc-windows-gnu", "unknown-linux-gnu", "unknown-linux-musl",
+        "apple-darwin", "pc-windows", "linux-gnu", "linux-musl",
+        // Other patterns
+        "msvc", "gnu", "musl", "static", "dynamic"
+    ];
+    
+    // Split the name by common separators
+    let parts: Vec<&str> = archive_name.split(&['-', '_'][..]).collect();
+    let mut cleaned_parts = Vec::new();
+    let mut found_version = false;
+    
+    for part in parts.iter() {
+        let part_lower = part.to_lowercase();
+        
+        // Check if this part looks like a version number
+        let is_version = is_version_like(part);
+        
+        // If we found a version, include it and stop processing further parts
+        // that look like platform identifiers
+        if is_version {
+            cleaned_parts.push(*part);
+            found_version = true;
+            continue;
+        }
+        
+        // If we haven't found a version yet, or this doesn't look like platform info, keep it
+        if !found_version || !is_platform_identifier(&part_lower, &platform_patterns) {
+            // Also skip parts that are just numbers (often build numbers after version)
+            if !part.chars().all(|c| c.is_ascii_digit()) {
+                cleaned_parts.push(*part);
+            }
+        }
+    }
+    
+    // If we didn't find any meaningful parts, fall back to original name
+    if cleaned_parts.is_empty() {
+        archive_name.to_string()
+    } else {
+        cleaned_parts.join("_")
+    }
+}
+
+fn is_version_like(part: &str) -> bool {
+    // Check for common version patterns
+    // x.y.z, x.y, vx.y.z, x.y.z-alpha, etc.
+    let part = part.trim_start_matches('v').trim_start_matches('V');
+    
+    // Simple regex-like check for version patterns
+    let chars: Vec<char> = part.chars().collect();
+    if chars.is_empty() {
+        return false;
+    }
+    
+    // Must start with a digit
+    if !chars[0].is_ascii_digit() {
+        return false;
+    }
+    
+    // Look for patterns like x.y or x.y.z
+    let mut dot_count = 0;
+    let mut has_digit_after_dot = false;
+    
+    for (i, &ch) in chars.iter().enumerate() {
+        match ch {
+            '0'..='9' => {
+                if i > 0 && chars[i-1] == '.' {
+                    has_digit_after_dot = true;
+                }
+            }
+            '.' => {
+                dot_count += 1;
+                has_digit_after_dot = false;
+                // Too many dots is suspicious
+                if dot_count > 3 {
+                    return false;
+                }
+            }
+            '-' | '+' => {
+                // Allow version suffixes like -alpha, -beta, +build
+                break;
+            }
+            _ => {
+                // Other characters might be part of version suffix
+                if dot_count == 0 {
+                    return false; // No dots seen yet, this doesn't look like a version
+                }
+                break;
+            }
+        }
+    }
+    
+    // Must have at least one dot and a digit after it
+    dot_count > 0 && has_digit_after_dot
+}
+
+fn is_platform_identifier(part: &str, platform_patterns: &[&str]) -> bool {
+    platform_patterns.iter().any(|&pattern| part == pattern || part.contains(pattern))
+}
+
 fn install_package(
     source: &str,
     binary: Option<&str>,
@@ -1582,20 +1689,49 @@ fn install_package(
 
             // Determine the app directory name based on source
             let app_name = if source.contains('/') && !source.starts_with("http") {
-                // GitHub repo: use owner_repo format
-                source.replace('/', "_")
+                // GitHub repo: use owner_repo_version format
+                let base_name = source.replace('/', "_");
+                
+                // Get version information from GitHub tag
+                let version_info = if let Some(tag) = tag {
+                    Some(tag.to_string())
+                } else {
+                    // Get latest release tag if no specific tag provided
+                    match get_latest_github_tag(source) {
+                        Ok(latest_tag) => Some(latest_tag),
+                        Err(e) => {
+                            println!("Warning: Could not get latest tag for {}: {}", source, e);
+                            None
+                        }
+                    }
+                };
+                
+                if let Some(version) = version_info {
+                    // Clean up version string (remove 'v' prefix if present)
+                    let clean_version = version.trim_start_matches('v');
+                    format!("{}_{}", base_name, clean_version)
+                } else {
+                    base_name
+                }
             } else {
-                // URL: try to extract a reasonable name from the filename
+                // Direct URL: derive name from archive filename with platform cleanup
                 let filename = get_filename_from_url(source);
-                Path::new(&filename)
+                let base_name = Path::new(&filename)
                     .file_stem()
                     .and_then(|name| name.to_str())
-                    .unwrap_or("zipget_install")
-                    .to_string()
+                    .unwrap_or("zipget_install");
+                
+                // Apply heuristics to clean up platform-specific parts
+                let cleaned_name = clean_archive_name_for_directory(base_name);
+                if cleaned_name != base_name {
+                    println!("Cleaned directory name: '{}' -> '{}'", base_name, cleaned_name);
+                }
+                cleaned_name
             };
 
-            // Create app directory in Programs
+            // Create app directory in Programs (includes version for organization)
             let app_dir = programs_dir.join(&app_name);
+            println!("Installing to: {}", app_dir.display());
             fs::create_dir_all(&app_dir).with_context(|| {
                 format!("Failed to create app directory: {}", app_dir.display())
             })?;
