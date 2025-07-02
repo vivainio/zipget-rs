@@ -655,9 +655,7 @@ fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) ->
     }
 
     if let Some(pattern) = file_pattern {
-        println!(
-            "Extracted {extracted_count} files matching pattern '{pattern}'"
-        );
+        println!("Extracted {extracted_count} files matching pattern '{pattern}'");
     } else {
         println!("Extracted {extracted_count} files");
     }
@@ -719,9 +717,7 @@ fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>)
     }
 
     if let Some(pattern) = file_pattern {
-        println!(
-            "Extracted {extracted_count} files matching pattern '{pattern}'"
-        );
+        println!("Extracted {extracted_count} files matching pattern '{pattern}'");
     } else {
         println!("Extracted {extracted_count} files");
     }
@@ -867,9 +863,7 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
 
 fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, String)> {
     let api_url = if let Some(tag) = tag {
-        format!(
-            "https://api.github.com/repos/{repo}/releases/tags/{tag}"
-        )
+        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
     } else {
         format!("https://api.github.com/repos/{repo}/releases/latest")
     };
@@ -924,9 +918,7 @@ fn fetch_github_release(
     let (release, binary_name) = if let Some(name) = binary_name {
         // User specified binary name, fetch release separately
         let api_url = if let Some(tag) = tag {
-            format!(
-                "https://api.github.com/repos/{repo}/releases/tags/{tag}"
-            )
+            format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
         } else {
             format!("https://api.github.com/repos/{repo}/releases/latest")
         };
@@ -951,9 +943,7 @@ fn fetch_github_release(
 
         (release, name.to_string())
     } else {
-        println!(
-            "No binary specified for {repo}, analyzing available assets..."
-        );
+        println!("No binary specified for {repo}, analyzing available assets...");
         get_best_binary_from_release(repo, tag)?
     };
 
@@ -1075,9 +1065,7 @@ fn fetch_direct_url(
 
 fn get_github_release_url(repo: &str, binary_name: &str, tag: Option<&str>) -> Result<String> {
     let api_url = if let Some(tag) = tag {
-        format!(
-            "https://api.github.com/repos/{repo}/releases/tags/{tag}"
-        )
+        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
     } else {
         format!("https://api.github.com/repos/{repo}/releases/latest")
     };
@@ -1216,9 +1204,7 @@ fn run_package(
         let binary_name = if let Some(name) = binary {
             name.to_string()
         } else {
-            println!(
-                "No binary specified for {source}, analyzing available assets..."
-            );
+            println!("No binary specified for {source}, analyzing available assets...");
             let (_release, best_match) = get_best_binary_from_release(source, tag)?;
             best_match
         };
@@ -1392,33 +1378,54 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-
-
 fn clean_archive_name_for_directory(archive_name: &str) -> String {
     // Common platform identifiers to remove
     let platform_patterns = [
         // Architecture patterns
-        "x86_64", "amd64", "i386", "i686", "arm64", "aarch64", "armv7", "armv6",
+        "x86_64",
+        "amd64",
+        "i386",
+        "i686",
+        "arm64",
+        "aarch64",
+        "armv7",
+        "armv6",
         // OS patterns
-        "windows", "linux", "darwin", "macos", "freebsd", "openbsd", "netbsd",
-        // Toolchain patterns  
-        "pc-windows-msvc", "pc-windows-gnu", "unknown-linux-gnu", "unknown-linux-musl",
-        "apple-darwin", "pc-windows", "linux-gnu", "linux-musl",
+        "windows",
+        "linux",
+        "darwin",
+        "macos",
+        "freebsd",
+        "openbsd",
+        "netbsd",
+        // Toolchain patterns
+        "pc-windows-msvc",
+        "pc-windows-gnu",
+        "unknown-linux-gnu",
+        "unknown-linux-musl",
+        "apple-darwin",
+        "pc-windows",
+        "linux-gnu",
+        "linux-musl",
         // Other patterns
-        "msvc", "gnu", "musl", "static", "dynamic"
+        "msvc",
+        "gnu",
+        "musl",
+        "static",
+        "dynamic",
     ];
-    
+
     // Split the name by common separators
     let parts: Vec<&str> = archive_name.split(&['-', '_'][..]).collect();
     let mut cleaned_parts = Vec::new();
     let mut found_version = false;
-    
+
     for part in parts.iter() {
         let part_lower = part.to_lowercase();
-        
+
         // Check if this part looks like a version number
         let is_version = is_version_like(part);
-        
+
         // If we found a version, include it and stop processing further parts
         // that look like platform identifiers
         if is_version {
@@ -1426,7 +1433,7 @@ fn clean_archive_name_for_directory(archive_name: &str) -> String {
             found_version = true;
             continue;
         }
-        
+
         // If we haven't found a version yet, or this doesn't look like platform info, keep it
         if !found_version || !is_platform_identifier(&part_lower, &platform_patterns) {
             // Also skip parts that are just numbers (often build numbers after version)
@@ -1435,7 +1442,7 @@ fn clean_archive_name_for_directory(archive_name: &str) -> String {
             }
         }
     }
-    
+
     // If we didn't find any meaningful parts, fall back to original name
     if cleaned_parts.is_empty() {
         archive_name.to_string()
@@ -1448,26 +1455,26 @@ fn is_version_like(part: &str) -> bool {
     // Check for common version patterns
     // x.y.z, x.y, vx.y.z, x.y.z-alpha, etc.
     let part = part.trim_start_matches('v').trim_start_matches('V');
-    
+
     // Simple regex-like check for version patterns
     let chars: Vec<char> = part.chars().collect();
     if chars.is_empty() {
         return false;
     }
-    
+
     // Must start with a digit
     if !chars[0].is_ascii_digit() {
         return false;
     }
-    
+
     // Look for patterns like x.y or x.y.z
     let mut dot_count = 0;
     let mut has_digit_after_dot = false;
-    
+
     for (i, &ch) in chars.iter().enumerate() {
         match ch {
             '0'..='9' => {
-                if i > 0 && chars[i-1] == '.' {
+                if i > 0 && chars[i - 1] == '.' {
                     has_digit_after_dot = true;
                 }
             }
@@ -1492,13 +1499,15 @@ fn is_version_like(part: &str) -> bool {
             }
         }
     }
-    
+
     // Must have at least one dot and a digit after it
     dot_count > 0 && has_digit_after_dot
 }
 
 fn is_platform_identifier(part: &str, platform_patterns: &[&str]) -> bool {
-    platform_patterns.iter().any(|&pattern| part == pattern || part.contains(pattern))
+    platform_patterns
+        .iter()
+        .any(|&pattern| part == pattern || part.contains(pattern))
 }
 
 fn install_package(
@@ -1531,16 +1540,12 @@ fn install_package(
         let binary_name = if let Some(name) = binary {
             name.to_string()
         } else {
-            println!(
-                "No binary specified for {source}, analyzing available assets..."
-            );
+            println!("No binary specified for {source}, analyzing available assets...");
             let (_release, best_match) = get_best_binary_from_release(source, tag)?;
             best_match
         };
 
-        println!(
-            "Processing GitHub repo: {source}, binary: {binary_name}"
-        );
+        println!("Processing GitHub repo: {source}, binary: {binary_name}");
         let github_url = get_github_release_url(source, &binary_name, tag)?;
         let filename = get_filename_from_url(&github_url);
         (github_url, filename)
@@ -1691,7 +1696,7 @@ fn install_package(
             let app_name = if source.contains('/') && !source.starts_with("http") {
                 // GitHub repo: use owner_repo_version format
                 let base_name = source.replace('/', "_");
-                
+
                 // Get version information from GitHub tag
                 let version_info = if let Some(tag) = tag {
                     Some(tag.to_string())
@@ -1700,16 +1705,16 @@ fn install_package(
                     match get_latest_github_tag(source) {
                         Ok(latest_tag) => Some(latest_tag),
                         Err(e) => {
-                            println!("Warning: Could not get latest tag for {}: {}", source, e);
+                            println!("Warning: Could not get latest tag for {source}: {e}");
                             None
                         }
                     }
                 };
-                
+
                 if let Some(version) = version_info {
                     // Clean up version string (remove 'v' prefix if present)
                     let clean_version = version.trim_start_matches('v');
-                    format!("{}_{}", base_name, clean_version)
+                    format!("{base_name}_{clean_version}")
                 } else {
                     base_name
                 }
@@ -1720,11 +1725,11 @@ fn install_package(
                     .file_stem()
                     .and_then(|name| name.to_str())
                     .unwrap_or("zipget_install");
-                
+
                 // Apply heuristics to clean up platform-specific parts
                 let cleaned_name = clean_archive_name_for_directory(base_name);
                 if cleaned_name != base_name {
-                    println!("Cleaned directory name: '{}' -> '{}'", base_name, cleaned_name);
+                    println!("Cleaned directory name: '{base_name}' -> '{cleaned_name}'");
                 }
                 cleaned_name
             };
