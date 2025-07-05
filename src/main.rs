@@ -119,6 +119,11 @@ enum Commands {
         #[arg(long)]
         no_shim: bool,
     },
+    /// Create a shim in ~/.local/bin pointing to an existing executable
+    Shim {
+        /// Path to the existing executable to create a shim for
+        target_executable: String,
+    },
 }
 
 // TOML recipe format: HashMap where key is the section name (becomes tag)
@@ -438,6 +443,9 @@ fn main() -> Result<()> {
                 executable.as_deref(),
                 no_shim,
             )?;
+        }
+        Commands::Shim { target_executable } => {
+            create_shim(&target_executable)?;
         }
     }
 
@@ -1969,6 +1977,113 @@ fn install_package(
             );
         }
     }
+
+    Ok(())
+}
+
+fn create_shim(target_executable: &str) -> Result<()> {
+    // Check if we're on Windows for shim creation
+    #[cfg(not(windows))]
+    {
+        return Err(anyhow::anyhow!(
+            "The shim command is only available on Windows. On other platforms, create a symbolic link or shell script instead."
+        ));
+    }
+
+    // Convert target path to absolute path
+    let target_path = std::path::Path::new(target_executable);
+    let target_path = if target_path.is_absolute() {
+        target_path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .with_context(|| "Failed to get current directory")?
+            .join(target_path)
+    };
+
+    // Verify the target executable exists
+    if !target_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Target executable does not exist: {}",
+            target_path.display()
+        ));
+    }
+
+    // Get the executable name (without path and extension)
+    let exe_name = target_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
+
+    println!(
+        "Creating shim for executable: {} -> {}",
+        exe_name,
+        target_path.display()
+    );
+
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let local_bin_dir = home_dir.join(".local").join("bin");
+    fs::create_dir_all(&local_bin_dir).with_context(|| {
+        format!(
+            "Failed to create ~/.local/bin directory: {}",
+            local_bin_dir.display()
+        )
+    })?;
+
+    // Create shim configuration file
+    let shim_file = local_bin_dir.join(format!("{exe_name}.shim"));
+    let shim_content = format!("path = {}\nargs =", target_path.display());
+    fs::write(&shim_file, shim_content)
+        .with_context(|| format!("Failed to create shim file: {}", shim_file.display()))?;
+
+    // Create shim executable
+    let shim_exe = local_bin_dir.join(format!("{exe_name}.exe"));
+
+    #[cfg(windows)]
+    {
+        // Try to write the shim executable, handling the case where it's already in use
+        match fs::write(&shim_exe, SCOOP_SHIM_BYTES) {
+            Ok(()) => {
+                // Success, shim created normally
+            }
+            Err(err) => {
+                // Check if the error is because the file is in use and if it's the same size
+                if let Ok(existing_metadata) = fs::metadata(&shim_exe) {
+                    let existing_size = existing_metadata.len();
+                    let new_size = SCOOP_SHIM_BYTES.len() as u64;
+
+                    if existing_size == new_size {
+                        // Same size - likely the same shim, just warn and continue
+                        println!(
+                            "Warning: Shim executable {} is already in use but appears to be the same file (same size: {} bytes). Continuing...",
+                            shim_exe.display(),
+                            existing_size
+                        );
+                    } else {
+                        // Different size - fail with original error
+                        return Err(err).with_context(|| {
+                            format!("Failed to create shim executable: {} (existing file has different size: {} bytes vs {} bytes)", 
+                                shim_exe.display(), existing_size, new_size)
+                        });
+                    }
+                } else {
+                    // File doesn't exist or can't get metadata - fail with original error
+                    return Err(err).with_context(|| {
+                        format!("Failed to create shim executable: {}", shim_exe.display())
+                    });
+                }
+            }
+        }
+    }
+
+    println!("Successfully created shim!");
+    println!("Shim executable: {}", shim_exe.display());
+    println!("Shim configuration: {}", shim_file.display());
+    println!("Target executable: {}", target_path.display());
+    println!(
+        "Make sure {} is in your PATH to use the shim",
+        local_bin_dir.display()
+    );
 
     Ok(())
 }
