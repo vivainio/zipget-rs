@@ -1257,7 +1257,12 @@ fn run_package(
 
     // Extract the archive to the temporary directory with flattening
     println!("Extracting to: {}", temp_dir.display());
-    extract_archive_with_options(&cached_file_path, temp_dir.to_str().unwrap(), files_pattern, true)?;
+    extract_archive_with_options(
+        &cached_file_path,
+        temp_dir.to_str().unwrap(),
+        files_pattern,
+        true,
+    )?;
 
     // Find executable files in the extracted directory
     let executables = find_executables(&temp_dir)?;
@@ -1530,8 +1535,7 @@ fn should_flatten_directory(extract_to: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let entries: Vec<_> = fs::read_dir(extract_to)?
-        .collect::<Result<Vec<_>, _>>()?;
+    let entries: Vec<_> = fs::read_dir(extract_to)?.collect::<Result<Vec<_>, _>>()?;
 
     // Check if there's exactly one directory and no files at the top level
     if entries.len() == 1 {
@@ -1548,7 +1552,7 @@ fn should_flatten_directory(extract_to: &Path) -> Result<Option<String>> {
 
 fn flatten_directory_structure(extract_to: &Path, single_dir_name: &str) -> Result<()> {
     let single_dir_path = extract_to.join(single_dir_name);
-    
+
     // Create a temporary directory to move files through
     let temp_dir = extract_to.join(format!("_zipget_temp_{}", std::process::id()));
     fs::create_dir_all(&temp_dir)?;
@@ -1558,7 +1562,7 @@ fn flatten_directory_structure(extract_to: &Path, single_dir_name: &str) -> Resu
         let entry = entry?;
         let source = entry.path();
         let dest = temp_dir.join(entry.file_name());
-        
+
         if source.is_dir() {
             copy_dir_all(&source, &dest)?;
         } else {
@@ -1574,7 +1578,7 @@ fn flatten_directory_structure(extract_to: &Path, single_dir_name: &str) -> Resu
         let entry = entry?;
         let source = entry.path();
         let dest = extract_to.join(entry.file_name());
-        
+
         if source.is_dir() {
             copy_dir_all(&source, &dest)?;
         } else {
@@ -1612,7 +1616,7 @@ fn install_package(
     let temp_dir = std::env::temp_dir().join(format!("zipget-install-{}", std::process::id()));
     fs::create_dir_all(&temp_dir)
         .with_context(|| format!("Failed to create temp directory: {}", temp_dir.display()))?;
-    
+
     let extract_dir = if no_shim {
         temp_dir
     } else {
@@ -1620,12 +1624,12 @@ fn install_package(
         #[cfg(windows)]
         {
             use std::env;
-            
+
             // Get LOCALAPPDATA directory
             let local_app_data = env::var("LOCALAPPDATA")
                 .with_context(|| "LOCALAPPDATA environment variable not found")?;
             let programs_dir = Path::new(&local_app_data).join("Programs");
-            
+
             // Create Programs directory if it doesn't exist
             fs::create_dir_all(&programs_dir).with_context(|| {
                 format!(
@@ -1633,7 +1637,7 @@ fn install_package(
                     programs_dir.display()
                 )
             })?;
-            
+
             // Determine the app directory name based on source
             let app_name = if source.contains('/') && !source.starts_with("http") {
                 // GitHub repo: use owner_repo_version format
@@ -1682,7 +1686,7 @@ fn install_package(
             fs::create_dir_all(&app_dir).with_context(|| {
                 format!("Failed to create app directory: {}", app_dir.display())
             })?;
-            
+
             app_dir
         }
         #[cfg(not(windows))]
@@ -1730,7 +1734,12 @@ fn install_package(
 
     // Extract to the determined directory
     println!("Extracting to directory: {}", extract_dir.display());
-    extract_archive_with_options(&file_path, extract_dir.to_str().unwrap(), files_pattern, true)?;
+    extract_archive_with_options(
+        &file_path,
+        extract_dir.to_str().unwrap(),
+        files_pattern,
+        true,
+    )?;
 
     // Find executables in the extracted directory
     let executables = find_executables(&extract_dir)?;
@@ -1864,7 +1873,7 @@ fn install_package(
 
                 // Create shim executable (copy of embedded scoop shim)
                 let shim_exe = local_bin_dir.join(format!("{exe_name}.exe"));
-                
+
                 // Try to write the shim executable, handling the case where it's already in use
                 match fs::write(&shim_exe, SCOOP_SHIM_BYTES) {
                     Ok(()) => {
@@ -1875,11 +1884,14 @@ fn install_package(
                         if let Ok(existing_metadata) = fs::metadata(&shim_exe) {
                             let existing_size = existing_metadata.len();
                             let new_size = SCOOP_SHIM_BYTES.len() as u64;
-                            
+
                             if existing_size == new_size {
                                 // Same size - likely the same shim, just warn and continue
-                                println!("Warning: Shim executable {} is already in use but appears to be the same file (same size: {} bytes). Continuing...", 
-                                    shim_exe.display(), existing_size);
+                                println!(
+                                    "Warning: Shim executable {} is already in use but appears to be the same file (same size: {} bytes). Continuing...",
+                                    shim_exe.display(),
+                                    existing_size
+                                );
                             } else {
                                 // Different size - fail with original error
                                 return Err(err).with_context(|| {
