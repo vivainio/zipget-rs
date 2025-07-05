@@ -1395,6 +1395,34 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)
+        .with_context(|| format!("Failed to create destination directory: {}", dst.display()))?;
+
+    for entry in fs::read_dir(src)
+        .with_context(|| format!("Failed to read source directory: {}", src.display()))?
+    {
+        let entry = entry.with_context(|| "Failed to read directory entry")?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path).with_context(|| {
+                format!(
+                    "Failed to copy {} to {}",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(windows)]
 fn clean_archive_name_for_directory(archive_name: &str) -> String {
     // Common platform identifiers to remove
@@ -1794,7 +1822,8 @@ fn install_package(
         let mut installed_executables = Vec::new();
         for target_exe in executables_to_install {
             let exe_name = target_exe
-                .file_name()
+                .file_stem()
+                .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
 
             // Copy the executable directly to ~/.local/bin
@@ -1817,7 +1846,7 @@ fn install_package(
                 })?;
             }
 
-            installed_executables.push((exe_name.to_string_lossy().to_string(), installed_exe));
+            installed_executables.push((exe_name.to_string(), installed_exe));
         }
 
         // Clean up temp directory
