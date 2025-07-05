@@ -129,8 +129,8 @@ class ZipgetTestSuite:
     def test_file_sizes(self) -> TestResult:
         """Test that downloaded files have reasonable sizes"""
         size_checks = [
-            ("small-test.zip", 8000, 12000),  # ~10KB
-            ("medium-test.zip", 80000, 120000),  # ~100KB
+            ("small-test.zip", 90000, 110000),  # ~100KB (actual size from thetestdata.com)
+            ("medium-test.zip", 950000, 1100000),  # ~1MB (actual size from thetestdata.com)
         ]
         
         failed_checks = []
