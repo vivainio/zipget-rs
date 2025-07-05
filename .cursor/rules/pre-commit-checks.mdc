@@ -1,0 +1,55 @@
+---
+alwaysApply: true
+---
+
+# Pre-Commit Quality Checks
+
+Before committing any changes to this Rust project, always run the following checks:
+
+## Required Pre-Commit Commands
+
+1. **Format code with rustfmt:**
+   ```bash
+   cargo fmt
+   ```
+
+2. **Run clippy for linting:**
+   ```bash
+   cargo clippy -- -D warnings
+   ```
+
+3. **Run tests to ensure nothing is broken:**
+   ```bash
+   cargo test
+   ```
+
+## Workflow
+
+The recommended pre-commit workflow is:
+
+```bash
+# Format code
+cargo fmt
+
+# Check for linting issues
+cargo clippy -- -D warnings
+
+# Run tests
+cargo test
+
+# If all checks pass, commit
+git add .
+git commit -m "Your commit message"
+git push
+```
+
+## CI/CD Integration
+
+These same checks should be enforced in GitHub Actions workflows to ensure consistency across all contributions.
+
+## Notes
+
+- Use `cargo fmt` to automatically fix formatting issues
+- Address all clippy warnings before committing
+- Ensure all tests pass before pushing changes
+- Consider using git hooks to automate these checks
