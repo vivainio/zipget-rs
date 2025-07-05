@@ -523,7 +523,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
     // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {unzip_to}");
-        extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
+        extract_archive_with_options(&file_path, unzip_to, fetch_item.files.as_deref(), true)?;
     }
 
     Ok(())
@@ -724,10 +724,11 @@ fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>)
     Ok(())
 }
 
-fn extract_archive(
+fn extract_archive_with_options(
     archive_path: &Path,
     extract_to: &str,
     file_pattern: Option<&str>,
+    flatten: bool,
 ) -> Result<()> {
     let filename = archive_path
         .file_name()
@@ -736,17 +737,27 @@ fn extract_archive(
         .to_lowercase();
 
     if filename.ends_with(".zip") {
-        extract_zip(archive_path, extract_to, file_pattern)
+        extract_zip(archive_path, extract_to, file_pattern)?;
     } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
-        extract_tar_gz(archive_path, extract_to, file_pattern)
+        extract_tar_gz(archive_path, extract_to, file_pattern)?;
     } else {
         // Try to detect by content or fall back to zip
         println!(
             "Warning: Unknown archive type for '{}', attempting ZIP extraction",
             archive_path.display()
         );
-        extract_zip(archive_path, extract_to, file_pattern)
+        extract_zip(archive_path, extract_to, file_pattern)?;
     }
+
+    // Apply directory flattening if requested
+    if flatten {
+        let extract_path = Path::new(extract_to);
+        if let Some(single_dir_name) = should_flatten_directory(extract_path)? {
+            flatten_directory_structure(extract_path, &single_dir_name)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn get_filename_from_url(url: &str) -> String {
@@ -1003,7 +1014,7 @@ fn fetch_github_release(
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
         println!("Extracting to: {unzip_to}");
-        extract_archive(&file_path, unzip_to, files_pattern)?;
+        extract_archive_with_options(&file_path, unzip_to, files_pattern, true)?;
     }
 
     Ok(())
@@ -1057,7 +1068,7 @@ fn fetch_direct_url(
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
         println!("Extracting to: {unzip_to}");
-        extract_archive(&file_path, unzip_to, files_pattern)?;
+        extract_archive_with_options(&file_path, unzip_to, files_pattern, true)?;
     }
 
     Ok(())
@@ -1244,9 +1255,9 @@ fn run_package(
         cached_file_path
     };
 
-    // Extract the archive to the temporary directory
+    // Extract the archive to the temporary directory with flattening
     println!("Extracting to: {}", temp_dir.display());
-    extract_archive(&cached_file_path, temp_dir.to_str().unwrap(), files_pattern)?;
+    extract_archive_with_options(&cached_file_path, temp_dir.to_str().unwrap(), files_pattern, true)?;
 
     // Find executable files in the extracted directory
     let executables = find_executables(&temp_dir)?;
@@ -1514,6 +1525,70 @@ fn is_platform_identifier(part: &str, platform_patterns: &[&str]) -> bool {
         .any(|&pattern| part == pattern || part.contains(pattern))
 }
 
+fn should_flatten_directory(extract_to: &Path) -> Result<Option<String>> {
+    if !extract_to.exists() {
+        return Ok(None);
+    }
+
+    let entries: Vec<_> = fs::read_dir(extract_to)?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Check if there's exactly one directory and no files at the top level
+    if entries.len() == 1 {
+        let entry = &entries[0];
+        if entry.file_type()?.is_dir() {
+            if let Some(dir_name) = entry.file_name().to_str() {
+                return Ok(Some(dir_name.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn flatten_directory_structure(extract_to: &Path, single_dir_name: &str) -> Result<()> {
+    let single_dir_path = extract_to.join(single_dir_name);
+    
+    // Create a temporary directory to move files through
+    let temp_dir = extract_to.join(format!("_zipget_temp_{}", std::process::id()));
+    fs::create_dir_all(&temp_dir)?;
+
+    // Move all contents from the single directory to the temp directory
+    for entry in fs::read_dir(&single_dir_path)? {
+        let entry = entry?;
+        let source = entry.path();
+        let dest = temp_dir.join(entry.file_name());
+        
+        if source.is_dir() {
+            copy_dir_all(&source, &dest)?;
+        } else {
+            fs::copy(&source, &dest)?;
+        }
+    }
+
+    // Remove the original single directory
+    fs::remove_dir_all(&single_dir_path)?;
+
+    // Move all contents from temp directory back to the extraction directory
+    for entry in fs::read_dir(&temp_dir)? {
+        let entry = entry?;
+        let source = entry.path();
+        let dest = extract_to.join(entry.file_name());
+        
+        if source.is_dir() {
+            copy_dir_all(&source, &dest)?;
+        } else {
+            fs::copy(&source, &dest)?;
+        }
+    }
+
+    // Remove the temporary directory
+    fs::remove_dir_all(&temp_dir)?;
+
+    println!("Flattened directory structure: removed top-level '{single_dir_name}' directory");
+    Ok(())
+}
+
 fn install_package(
     source: &str,
     binary: Option<&str>,
@@ -1532,10 +1607,90 @@ fn install_package(
         }
     }
 
-    // Create a temporary directory for extraction
+    // For no-shim installs, create a temporary directory for extraction
+    // We'll still need to process files before copying to ~/.local/bin
     let temp_dir = std::env::temp_dir().join(format!("zipget-install-{}", std::process::id()));
     fs::create_dir_all(&temp_dir)
         .with_context(|| format!("Failed to create temp directory: {}", temp_dir.display()))?;
+    
+    let extract_dir = if no_shim {
+        temp_dir
+    } else {
+        // For shim installs, we'll determine the app directory first
+        #[cfg(windows)]
+        {
+            use std::env;
+            
+            // Get LOCALAPPDATA directory
+            let local_app_data = env::var("LOCALAPPDATA")
+                .with_context(|| "LOCALAPPDATA environment variable not found")?;
+            let programs_dir = Path::new(&local_app_data).join("Programs");
+            
+            // Create Programs directory if it doesn't exist
+            fs::create_dir_all(&programs_dir).with_context(|| {
+                format!(
+                    "Failed to create Programs directory: {}",
+                    programs_dir.display()
+                )
+            })?;
+            
+            // Determine the app directory name based on source
+            let app_name = if source.contains('/') && !source.starts_with("http") {
+                // GitHub repo: use owner_repo_version format
+                let base_name = source.replace('/', "_");
+
+                // Get version information from GitHub tag
+                let version_info = if let Some(tag) = tag {
+                    Some(tag.to_string())
+                } else {
+                    // Get latest release tag if no specific tag provided
+                    match get_latest_github_tag(source) {
+                        Ok(latest_tag) => Some(latest_tag),
+                        Err(e) => {
+                            println!("Warning: Could not get latest tag for {source}: {e}");
+                            None
+                        }
+                    }
+                };
+
+                if let Some(version) = version_info {
+                    // Clean up version string (remove 'v' prefix if present)
+                    let clean_version = version.trim_start_matches('v');
+                    format!("{base_name}_{clean_version}")
+                } else {
+                    base_name
+                }
+            } else {
+                // Direct URL: derive name from archive filename with platform cleanup
+                let filename = get_filename_from_url(source);
+                let base_name = Path::new(&filename)
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("zipget_install");
+
+                // Apply heuristics to clean up platform-specific parts
+                let cleaned_name = clean_archive_name_for_directory(base_name);
+                if cleaned_name != base_name {
+                    println!("Cleaned directory name: '{base_name}' -> '{cleaned_name}'");
+                }
+                cleaned_name
+            };
+
+            // Create app directory in Programs (includes version for organization)
+            let app_dir = programs_dir.join(&app_name);
+            println!("Installing to: {}", app_dir.display());
+            fs::create_dir_all(&app_dir).with_context(|| {
+                format!("Failed to create app directory: {}", app_dir.display())
+            })?;
+            
+            app_dir
+        }
+        #[cfg(not(windows))]
+        {
+            // This shouldn't happen since we check for Windows at the beginning
+            temp_dir
+        }
+    };
 
     // Download and extract to temp directory
     let cache_dir = get_cache_dir()?;
@@ -1573,12 +1728,12 @@ fn install_package(
         cached_file_path
     };
 
-    // Extract to temp directory
-    println!("Extracting to temporary directory: {}", temp_dir.display());
-    extract_archive(&file_path, temp_dir.to_str().unwrap(), files_pattern)?;
+    // Extract to the determined directory
+    println!("Extracting to directory: {}", extract_dir.display());
+    extract_archive_with_options(&file_path, extract_dir.to_str().unwrap(), files_pattern, true)?;
 
     // Find executables in the extracted directory
-    let executables = find_executables(&temp_dir)?;
+    let executables = find_executables(&extract_dir)?;
 
     if executables.is_empty() {
         return Err(anyhow::anyhow!(
@@ -1657,7 +1812,7 @@ fn install_package(
         }
 
         // Clean up temp directory
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_dir_all(&extract_dir);
 
         // Print summary
         if installed_executables.len() == 1 {
@@ -1681,74 +1836,8 @@ fn install_package(
         // Create shims (Windows only)
         #[cfg(windows)]
         {
-            use std::env;
-
-            // Get LOCALAPPDATA directory
-            let local_app_data = env::var("LOCALAPPDATA")
-                .with_context(|| "LOCALAPPDATA environment variable not found")?;
-            let programs_dir = Path::new(&local_app_data).join("Programs");
-
-            // Create Programs directory if it doesn't exist
-            fs::create_dir_all(&programs_dir).with_context(|| {
-                format!(
-                    "Failed to create Programs directory: {}",
-                    programs_dir.display()
-                )
-            })?;
-
-            // Determine the app directory name based on source
-            let app_name = if source.contains('/') && !source.starts_with("http") {
-                // GitHub repo: use owner_repo_version format
-                let base_name = source.replace('/', "_");
-
-                // Get version information from GitHub tag
-                let version_info = if let Some(tag) = tag {
-                    Some(tag.to_string())
-                } else {
-                    // Get latest release tag if no specific tag provided
-                    match get_latest_github_tag(source) {
-                        Ok(latest_tag) => Some(latest_tag),
-                        Err(e) => {
-                            println!("Warning: Could not get latest tag for {source}: {e}");
-                            None
-                        }
-                    }
-                };
-
-                if let Some(version) = version_info {
-                    // Clean up version string (remove 'v' prefix if present)
-                    let clean_version = version.trim_start_matches('v');
-                    format!("{base_name}_{clean_version}")
-                } else {
-                    base_name
-                }
-            } else {
-                // Direct URL: derive name from archive filename with platform cleanup
-                let filename = get_filename_from_url(source);
-                let base_name = Path::new(&filename)
-                    .file_stem()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("zipget_install");
-
-                // Apply heuristics to clean up platform-specific parts
-                let cleaned_name = clean_archive_name_for_directory(base_name);
-                if cleaned_name != base_name {
-                    println!("Cleaned directory name: '{base_name}' -> '{cleaned_name}'");
-                }
-                cleaned_name
-            };
-
-            // Create app directory in Programs (includes version for organization)
-            let app_dir = programs_dir.join(&app_name);
-            println!("Installing to: {}", app_dir.display());
-            fs::create_dir_all(&app_dir).with_context(|| {
-                format!("Failed to create app directory: {}", app_dir.display())
-            })?;
-
-            // Copy all files from temp directory to app directory
-            println!("Installing all files to: {}", app_dir.display());
-            copy_dir_all(&temp_dir, &app_dir)
-                .with_context(|| format!("Failed to copy files to {}", app_dir.display()))?;
+            // Files are already extracted to the app directory (extract_dir)
+            // No need to copy files since we extracted directly to the destination
 
             // Install shims for each executable
             let mut installed_executables = Vec::new();
@@ -1758,11 +1847,11 @@ fn install_package(
                     .and_then(|name| name.to_str())
                     .ok_or_else(|| anyhow::anyhow!("Invalid executable name"))?;
 
-                // Find the installed executable path (relative to temp_dir)
-                let relative_path = target_exe.strip_prefix(&temp_dir).with_context(|| {
+                // Find the installed executable path (relative to extract_dir)
+                let relative_path = target_exe.strip_prefix(&extract_dir).with_context(|| {
                     format!("Failed to get relative path for {}", target_exe.display())
                 })?;
-                let installed_exe = app_dir.join(relative_path);
+                let installed_exe = extract_dir.join(relative_path);
 
                 println!("Creating shim for executable: {}", installed_exe.display());
 
@@ -1783,7 +1872,7 @@ fn install_package(
             }
 
             // Clean up temp directory
-            let _ = fs::remove_dir_all(&temp_dir);
+            let _ = fs::remove_dir_all(&extract_dir);
 
             // Print summary
             if installed_executables.len() == 1 {
