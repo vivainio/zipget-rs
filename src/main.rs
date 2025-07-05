@@ -1908,7 +1908,7 @@ fn install_package(
                     format!("Failed to create shim file: {}", shim_file.display())
                 })?;
 
-                // Create shim executable (copy of embedded scoop shim)
+                // Create shim executable
                 let shim_exe = local_bin_dir.join(format!("{exe_name}.exe"));
 
                 // Try to write the shim executable, handling the case where it's already in use
@@ -1971,10 +1971,12 @@ fn install_package(
                     );
                 }
             }
-            println!(
-                "Add {} to your PATH to use the shims",
-                local_bin_dir.display()
-            );
+            if !is_directory_in_path(&local_bin_dir) {
+                println!(
+                    "Add {} to your PATH to use the shims",
+                    local_bin_dir.display()
+                );
+            }
         }
     }
 
@@ -2080,10 +2082,24 @@ fn create_shim(target_executable: &str) -> Result<()> {
     println!("Shim executable: {}", shim_exe.display());
     println!("Shim configuration: {}", shim_file.display());
     println!("Target executable: {}", target_path.display());
-    println!(
-        "Make sure {} is in your PATH to use the shim",
-        local_bin_dir.display()
-    );
+    if !is_directory_in_path(&local_bin_dir) {
+        println!(
+            "Make sure {} is in your PATH to use the shim",
+            local_bin_dir.display()
+        );
+    }
 
     Ok(())
+}
+
+fn is_directory_in_path(directory: &Path) -> bool {
+    if let Ok(path_var) = std::env::var("PATH") {
+        let paths = std::env::split_paths(&path_var);
+        for path in paths {
+            if path == directory {
+                return true;
+            }
+        }
+    }
+    false
 }
