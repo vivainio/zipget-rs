@@ -1864,9 +1864,37 @@ fn install_package(
 
                 // Create shim executable (copy of embedded scoop shim)
                 let shim_exe = local_bin_dir.join(format!("{exe_name}.exe"));
-                fs::write(&shim_exe, SCOOP_SHIM_BYTES).with_context(|| {
-                    format!("Failed to create shim executable: {}", shim_exe.display())
-                })?;
+                
+                // Try to write the shim executable, handling the case where it's already in use
+                match fs::write(&shim_exe, SCOOP_SHIM_BYTES) {
+                    Ok(()) => {
+                        // Success, shim created normally
+                    }
+                    Err(err) => {
+                        // Check if the error is because the file is in use and if it's the same size
+                        if let Ok(existing_metadata) = fs::metadata(&shim_exe) {
+                            let existing_size = existing_metadata.len();
+                            let new_size = SCOOP_SHIM_BYTES.len() as u64;
+                            
+                            if existing_size == new_size {
+                                // Same size - likely the same shim, just warn and continue
+                                println!("Warning: Shim executable {} is already in use but appears to be the same file (same size: {} bytes). Continuing...", 
+                                    shim_exe.display(), existing_size);
+                            } else {
+                                // Different size - fail with original error
+                                return Err(err).with_context(|| {
+                                    format!("Failed to create shim executable: {} (existing file has different size: {} bytes vs {} bytes)", 
+                                        shim_exe.display(), existing_size, new_size)
+                                });
+                            }
+                        } else {
+                            // File doesn't exist or can't get metadata - fail with original error
+                            return Err(err).with_context(|| {
+                                format!("Failed to create shim executable: {}", shim_exe.display())
+                            });
+                        }
+                    }
+                }
 
                 installed_executables.push((exe_name.to_string(), installed_exe, shim_exe));
             }
