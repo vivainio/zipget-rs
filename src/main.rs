@@ -348,8 +348,6 @@ fn download_s3_file(s3_url: &str, local_path: &Path, profile: Option<&str>) -> R
     }
 }
 
-
-
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -410,11 +408,15 @@ fn main() -> Result<()> {
                                 if let Some(item) = updated_recipe.get_mut(&section_name) {
                                     // Initialize lock info if not present
                                     if item.lock.is_none() {
-                                        item.lock = Some(LockInfo { sha: None, download_url: None });
+                                        item.lock = Some(LockInfo {
+                                            sha: None,
+                                            download_url: None,
+                                        });
                                     }
-                                    
+
                                     let lock_info = item.lock.as_mut().unwrap();
-                                    let old_sha = lock_info.sha.clone().unwrap_or_else(|| "none".to_string());
+                                    let old_sha =
+                                        lock_info.sha.clone().unwrap_or_else(|| "none".to_string());
                                     println!("  SHA-256: {old_sha} -> {}", lock_result.sha);
 
                                     if old_sha != lock_result.sha {
@@ -627,7 +629,11 @@ fn process_fetch_item(
 ) -> Result<Option<String>> {
     let cache_dir = get_cache_dir()?;
 
-    let (download_url, filename) = if let Some(stored_url) = fetch_item.lock.as_ref().and_then(|l| l.download_url.as_ref()) {
+    let (download_url, filename) = if let Some(stored_url) = fetch_item
+        .lock
+        .as_ref()
+        .and_then(|l| l.download_url.as_ref())
+    {
         // Use stored direct download URL (from lock file) - skip GitHub API
         println!("Using stored download URL: {stored_url}");
         let filename = get_filename_from_url(stored_url);
@@ -740,68 +746,75 @@ fn process_fetch_item_for_lock(
 ) -> Result<LockResult> {
     let cache_dir = get_cache_dir()?;
 
-    let (download_url, filename, resolved_tag, capture_download_url) = if let Some(url) = &fetch_item.url {
-        println!("Processing URL: {url}");
-        let filename = get_filename_from_url(url);
-        (url.clone(), filename, None, false)
-    } else if let Some(github) = &fetch_item.github {
-        println!("Processing GitHub repo: {}", github.repo);
+    let (download_url, filename, resolved_tag, capture_download_url) =
+        if let Some(url) = &fetch_item.url {
+            println!("Processing URL: {url}");
+            let filename = get_filename_from_url(url);
+            (url.clone(), filename, None, false)
+        } else if let Some(github) = &fetch_item.github {
+            println!("Processing GitHub repo: {}", github.repo);
 
-        let (download_url, filename, resolved_tag, capture_download_url) = if let Some(asset_name) = &github.asset {
-            // User specified asset name - use the existing logic
-            println!("Using specified asset: {asset_name}");
+            let (download_url, filename, resolved_tag, capture_download_url) =
+                if let Some(asset_name) = &github.asset {
+                    // User specified asset name - use the existing logic
+                    println!("Using specified asset: {asset_name}");
 
-            let (release, _) = if github.tag.is_some() {
-                // Tag specified, get that specific release
-                get_best_binary_from_release(&github.repo, github.tag.as_deref())?
-            } else {
-                // No tag specified, get latest and we'll pin it
-                get_best_binary_from_release(&github.repo, None)?
-            };
+                    let (release, _) = if github.tag.is_some() {
+                        // Tag specified, get that specific release
+                        get_best_binary_from_release(&github.repo, github.tag.as_deref())?
+                    } else {
+                        // No tag specified, get latest and we'll pin it
+                        get_best_binary_from_release(&github.repo, None)?
+                    };
 
-            let github_url =
-                get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
-            let filename = get_filename_from_url(&github_url);
-            let resolved_tag = if github.tag.is_none() {
-                Some(release.tag_name)
-            } else {
-                None
-            };
-            (github_url, filename, resolved_tag, true)
-        } else {
-            // No asset specified - use intelligent asset detection
-            println!("No asset specified, analyzing available assets...");
-            let (release, best_asset) =
-                get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+                    let github_url =
+                        get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
+                    let filename = get_filename_from_url(&github_url);
+                    let resolved_tag = if github.tag.is_none() {
+                        Some(release.tag_name)
+                    } else {
+                        None
+                    };
+                    (github_url, filename, resolved_tag, true)
+                } else {
+                    // No asset specified - use intelligent asset detection
+                    println!("No asset specified, analyzing available assets...");
+                    let (release, best_asset) =
+                        get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
 
-            // Find the matching asset URL
-            let asset = release
-                .assets
-                .iter()
-                .find(|asset| asset.name == best_asset)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Selected asset '{}' not found in release assets",
-                        best_asset
+                    // Find the matching asset URL
+                    let asset = release
+                        .assets
+                        .iter()
+                        .find(|asset| asset.name == best_asset)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Selected asset '{}' not found in release assets",
+                                best_asset
+                            )
+                        })?;
+
+                    println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
+                    let filename = get_filename_from_url(&asset.browser_download_url);
+                    let resolved_tag = if github.tag.is_none() {
+                        Some(release.tag_name.clone())
+                    } else {
+                        None
+                    };
+                    (
+                        asset.browser_download_url.clone(),
+                        filename,
+                        resolved_tag,
+                        true,
                     )
-                })?;
+                };
 
-            println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
-            let filename = get_filename_from_url(&asset.browser_download_url);
-            let resolved_tag = if github.tag.is_none() {
-                Some(release.tag_name.clone())
-            } else {
-                None
-            };
-            (asset.browser_download_url.clone(), filename, resolved_tag, true)
+            (download_url, filename, resolved_tag, capture_download_url)
+        } else {
+            return Err(anyhow::anyhow!(
+                "FetchItem must have either 'url' or 'github' specified"
+            ));
         };
-
-        (download_url, filename, resolved_tag, capture_download_url)
-    } else {
-        return Err(anyhow::anyhow!(
-            "FetchItem must have either 'url' or 'github' specified"
-        ));
-    };
 
     let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
     let cached_filename = format!("{url_hash}_{filename}");
