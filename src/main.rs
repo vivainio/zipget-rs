@@ -135,6 +135,14 @@ enum Commands {
 type Recipe = HashMap<String, FetchItem>;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+struct LockInfo {
+    /// SHA-256 hash for file verification (hex string)
+    sha: Option<String>,
+    /// Direct download URL (stored during lock file generation for faster access)
+    download_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct FetchItem {
     url: Option<String>,
     github: Option<GitHubFetch>,
@@ -148,8 +156,8 @@ struct FetchItem {
     install_exes: Option<Vec<String>>,
     /// Install executable directly without creating shims (defaults to false on Windows)
     no_shim: Option<bool>,
-    /// SHA-256 hash for file verification (hex string)
-    sha: Option<String>,
+    /// Lock information (SHA-256 hash and direct download URL)
+    lock: Option<LockInfo>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -340,6 +348,8 @@ fn download_s3_file(s3_url: &str, local_path: &Path, profile: Option<&str>) -> R
     }
 }
 
+
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -394,24 +404,46 @@ fn main() -> Result<()> {
 
                     for (section_name, fetch_item) in sections_to_process {
                         println!("Processing {section_name} for lock file...");
-                        match process_fetch_item(&fetch_item, profile.as_deref()) {
-                            Ok(Some(computed_sha)) => {
-                                // Update the recipe with computed SHA
+                        match process_fetch_item_for_lock(&fetch_item, profile.as_deref()) {
+                            Ok(lock_result) => {
+                                // Update the recipe with computed SHA and resolved tag
                                 if let Some(item) = updated_recipe.get_mut(&section_name) {
-                                    let old_sha =
-                                        item.sha.clone().unwrap_or_else(|| "none".to_string());
-                                    println!("  SHA-256: {old_sha} -> {computed_sha}");
-                                    if old_sha != computed_sha {
-                                        item.sha = Some(computed_sha);
+                                    // Initialize lock info if not present
+                                    if item.lock.is_none() {
+                                        item.lock = Some(LockInfo { sha: None, download_url: None });
+                                    }
+                                    
+                                    let lock_info = item.lock.as_mut().unwrap();
+                                    let old_sha = lock_info.sha.clone().unwrap_or_else(|| "none".to_string());
+                                    println!("  SHA-256: {old_sha} -> {}", lock_result.sha);
+
+                                    if old_sha != lock_result.sha {
+                                        lock_info.sha = Some(lock_result.sha);
                                         any_updated = true;
                                     }
+
+                                    // If we resolved a tag for a GitHub release without explicit tag, pin it
+                                    if let Some(resolved_tag) = lock_result.resolved_tag {
+                                        if let Some(github) = &mut item.github {
+                                            if github.tag.is_none() {
+                                                println!(
+                                                    "  Pinning GitHub release to tag: {resolved_tag}"
+                                                );
+                                                github.tag = Some(resolved_tag);
+                                                any_updated = true;
+                                            }
+                                        }
+                                    }
+
+                                    // Store direct download URL for GitHub assets
+                                    if let Some(download_url) = lock_result.download_url {
+                                        if lock_info.download_url.as_ref() != Some(&download_url) {
+                                            println!("  Storing direct download URL");
+                                            lock_info.download_url = Some(download_url);
+                                            any_updated = true;
+                                        }
+                                    }
                                 }
-                            }
-                            Ok(None) => {
-                                return Err(anyhow::anyhow!(
-                                    "Failed to compute SHA for {}",
-                                    section_name
-                                ));
                             }
                             Err(e) => {
                                 return Err(anyhow::anyhow!(
@@ -595,7 +627,12 @@ fn process_fetch_item(
 ) -> Result<Option<String>> {
     let cache_dir = get_cache_dir()?;
 
-    let (download_url, filename) = if let Some(url) = &fetch_item.url {
+    let (download_url, filename) = if let Some(stored_url) = fetch_item.lock.as_ref().and_then(|l| l.download_url.as_ref()) {
+        // Use stored direct download URL (from lock file) - skip GitHub API
+        println!("Using stored download URL: {stored_url}");
+        let filename = get_filename_from_url(stored_url);
+        (stored_url.clone(), filename)
+    } else if let Some(url) = &fetch_item.url {
         println!("Processing URL: {url}");
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
@@ -669,7 +706,7 @@ fn process_fetch_item(
     }
 
     // Verify SHA if specified
-    if let Some(expected_sha) = &fetch_item.sha {
+    if let Some(expected_sha) = fetch_item.lock.as_ref().and_then(|l| l.sha.as_ref()) {
         println!("Verifying SHA-256...");
         if !verify_sha256(&file_path, expected_sha)? {
             return Err(anyhow::anyhow!(
@@ -688,6 +725,141 @@ fn process_fetch_item(
     }
 
     Ok(Some(computed_sha))
+}
+
+#[derive(Debug)]
+struct LockResult {
+    sha: String,
+    resolved_tag: Option<String>, // For GitHub releases without explicit tags
+    download_url: Option<String>, // Direct download URL for GitHub assets
+}
+
+fn process_fetch_item_for_lock(
+    fetch_item: &FetchItem,
+    global_profile: Option<&str>,
+) -> Result<LockResult> {
+    let cache_dir = get_cache_dir()?;
+
+    let (download_url, filename, resolved_tag, capture_download_url) = if let Some(url) = &fetch_item.url {
+        println!("Processing URL: {url}");
+        let filename = get_filename_from_url(url);
+        (url.clone(), filename, None, false)
+    } else if let Some(github) = &fetch_item.github {
+        println!("Processing GitHub repo: {}", github.repo);
+
+        let (download_url, filename, resolved_tag, capture_download_url) = if let Some(asset_name) = &github.asset {
+            // User specified asset name - use the existing logic
+            println!("Using specified asset: {asset_name}");
+
+            let (release, _) = if github.tag.is_some() {
+                // Tag specified, get that specific release
+                get_best_binary_from_release(&github.repo, github.tag.as_deref())?
+            } else {
+                // No tag specified, get latest and we'll pin it
+                get_best_binary_from_release(&github.repo, None)?
+            };
+
+            let github_url =
+                get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
+            let filename = get_filename_from_url(&github_url);
+            let resolved_tag = if github.tag.is_none() {
+                Some(release.tag_name)
+            } else {
+                None
+            };
+            (github_url, filename, resolved_tag, true)
+        } else {
+            // No asset specified - use intelligent asset detection
+            println!("No asset specified, analyzing available assets...");
+            let (release, best_asset) =
+                get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+
+            // Find the matching asset URL
+            let asset = release
+                .assets
+                .iter()
+                .find(|asset| asset.name == best_asset)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Selected asset '{}' not found in release assets",
+                        best_asset
+                    )
+                })?;
+
+            println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
+            let filename = get_filename_from_url(&asset.browser_download_url);
+            let resolved_tag = if github.tag.is_none() {
+                Some(release.tag_name.clone())
+            } else {
+                None
+            };
+            (asset.browser_download_url.clone(), filename, resolved_tag, true)
+        };
+
+        (download_url, filename, resolved_tag, capture_download_url)
+    } else {
+        return Err(anyhow::anyhow!(
+            "FetchItem must have either 'url' or 'github' specified"
+        ));
+    };
+
+    let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
+    let cached_filename = format!("{url_hash}_{filename}");
+    let cached_file_path = cache_dir.join(&cached_filename);
+
+    // Use the appropriate profile - item-specific profile overrides global profile
+    let profile = fetch_item.profile.as_deref().or(global_profile);
+
+    let file_path = if cached_file_path.exists() {
+        println!("Found cached file: {}", cached_file_path.display());
+        cached_file_path
+    } else {
+        println!("Downloading: {download_url}");
+        download_file(&download_url, &cached_file_path, profile)?;
+        cached_file_path
+    };
+
+    // Save the file if save_as is specified
+    if let Some(save_as) = &fetch_item.save_as {
+        let save_path = Path::new(save_as);
+        if let Some(parent) = save_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+
+        fs::copy(&file_path, save_path)
+            .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
+        println!("Saved as: {save_as}");
+    }
+
+    // Verify SHA if specified
+    if let Some(expected_sha) = fetch_item.lock.as_ref().and_then(|l| l.sha.as_ref()) {
+        println!("Verifying SHA-256...");
+        if !verify_sha256(&file_path, expected_sha)? {
+            return Err(anyhow::anyhow!(
+                "SHA-256 verification failed for downloaded file"
+            ));
+        }
+    }
+
+    // Compute SHA for lock file generation
+    let computed_sha = compute_sha256(&file_path)?;
+
+    // Extract the archive if unzip_to is specified
+    if let Some(unzip_to) = &fetch_item.unzip_to {
+        println!("Extracting to: {unzip_to}");
+        extract_archive_with_options(&file_path, unzip_to, fetch_item.files.as_deref(), true)?;
+    }
+
+    Ok(LockResult {
+        sha: computed_sha,
+        resolved_tag,
+        download_url: if capture_download_url {
+            Some(download_url)
+        } else {
+            None
+        },
+    })
 }
 
 fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {

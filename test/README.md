@@ -6,6 +6,8 @@ This directory contains integration tests for the zipget-rs project.
 
 - `integration-test.toml` - Test recipe that covers various zipget-rs functionality
 - `lock-test.toml` - Test recipe for --lock functionality and SHA verification
+- `lock-test-no-tags.toml` - Test recipe for GitHub releases without explicit tags
+- `lock-test-selective.toml` - Test recipe for selective locking of individual items
 - `test-suite.py` - Python test runner that executes tests and validates results
 - `ci-test-suite.py` - CI-specific test runner
 - `README.md` - This documentation file
@@ -22,7 +24,10 @@ The integration tests cover:
 - **Caching**: Verify that downloaded files are cached properly
 - **Individual Commands**: Test standalone GitHub download commands
 - **Lock File Generation**: Test `--lock` parameter generates SHA-256 hashes
-- **SHA Verification**: Test SHA-256 verification of downloaded files
+- **SHA Verification**: Test SHA-256 verification of downloaded files  
+- **Tag Pinning**: Test `--lock` automatically pins GitHub releases without tags to specific versions
+- **Selective Locking**: Test `--lock` with specific item only locks that item
+- **Download URL Storage**: Test `--lock` stores direct download URLs for faster GitHub asset access
 
 ## Prerequisites
 
@@ -68,7 +73,10 @@ The test suite will:
 7. Verify caching functionality
 8. Test lock file generation with `--lock` parameter
 9. Test SHA-256 verification (both success and failure cases)
-10. Print a detailed summary
+10. Test automatic tag pinning for GitHub releases without explicit tags
+11. Test selective locking of individual recipe items
+12. Test download URL storage for GitHub assets
+13. Print a detailed summary
 
 ### Example Output
 ```
@@ -85,11 +93,14 @@ The test suite will:
 [12:35:25] INFO: PASS: cache_functionality (5.12s)
 [12:35:25] INFO: PASS: lock_file_generation (0.29s)
 [12:35:25] INFO: PASS: sha_verification (0.03s)
+[12:35:25] INFO: PASS: tag_pinning (0.65s)
+[12:35:25] INFO: PASS: selective_locking (0.22s)
+[12:35:25] INFO: PASS: download_url_storage (0.15s)
 ==================================================
 TEST SUMMARY
 ==================================================
-Total tests: 9
-Passed: 9
+Total tests: 12
+Passed: 12
 Failed: 0
 Overall result: SUCCESS
 ```

@@ -1,0 +1,14 @@
+# Selective Lock Test Recipe
+# Tests that --lock with specific item only locks that item
+
+[selective-item-url]
+url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+save_as = "./test-downloads/selective-url.zip"
+
+[selective-item-github]
+github = { repo = "vivainio/unxml-rs", tag = "v0.1.1" }
+save_as = "./test-downloads/selective-github.zip"
+
+[selective-item-other]
+url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_100KB.zip"
+save_as = "./test-downloads/selective-other.zip"

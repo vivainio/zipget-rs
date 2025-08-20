@@ -2,8 +2,8 @@
 url = "s3://my-tools-bucket/releases/app-v1.2.3.zip"
 unzip_to = "./downloads/s3-tools"
 files = "*.exe"
-# SHA-256 hash for file verification
-sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+# Lock information (added by --lock)
+lock = { sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", download_url = "https://example.com/direct/download/link.zip" }
 
 [modulize]
 url = "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip"
@@ -20,8 +20,8 @@ unzip_to = "./downloads"
 files = "rg"
 install_exes = ["rg"]
 no_shim = true
-# Example SHA-256 hash (use --lock to generate automatically)
-# sha = "abc123def456..."
+# Example lock information (use --lock to generate automatically)
+# lock = { sha = "abc123def456...", download_url = "https://..." }
 
 [bat]
 github = { repo = "sharkdp/bat", asset = "linux" }

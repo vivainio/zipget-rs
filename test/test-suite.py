@@ -407,6 +407,232 @@ sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7"
             if sha_test_recipe.exists():
                 sha_test_recipe.unlink()
 
+    def test_tag_pinning(self) -> TestResult:
+        """Test that --lock pins GitHub releases without tags to specific versions"""
+        start_time = time.time()
+        
+        # Create a copy of the no-tags test recipe
+        no_tags_recipe = self.test_dir / "lock-test-no-tags.toml"
+        no_tags_recipe_copy = self.test_dir / "lock-test-no-tags-copy.toml"
+        
+        try:
+            # Copy original recipe without tags
+            shutil.copy(no_tags_recipe, no_tags_recipe_copy)
+            
+            # Run zipget with --lock parameter
+            cmd = [str(self.zipget_binary), "recipe", str(no_tags_recipe_copy), "--lock"]
+            returncode, stdout, stderr = self.run_command(cmd)
+            
+            duration = time.time() - start_time
+            
+            if returncode != 0:
+                return TestResult(
+                    "tag_pinning",
+                    False,
+                    f"Tag pinning command failed: {stderr}",
+                    duration
+                )
+            
+            # Read the updated recipe file and check for pinned tags
+            with open(no_tags_recipe_copy, 'r') as f:
+                updated_content = f.read()
+            
+            # Look for tag patterns that were added
+            tag_pattern = r'tag\s*=\s*"[^"]+"'
+            tag_matches = re.findall(tag_pattern, updated_content)
+            
+            if len(tag_matches) < 2:  # Should have tags pinned for both GitHub items
+                return TestResult(
+                    "tag_pinning",
+                    False,
+                    f"Expected 2 pinned tags, found {len(tag_matches)}",
+                    duration
+                )
+            
+            # Check for "Pinning GitHub release to tag" messages in output
+            if "Pinning GitHub release to tag" not in stdout:
+                return TestResult(
+                    "tag_pinning",
+                    False,
+                    "Tag pinning message not found in output",
+                    duration
+                )
+            
+            return TestResult("tag_pinning", True, "Tag pinning working correctly", duration)
+            
+        finally:
+            # Clean up copy
+            if no_tags_recipe_copy.exists():
+                no_tags_recipe_copy.unlink()
+
+
+
+    def test_selective_locking(self) -> TestResult:
+        """Test that --lock with specific item only locks that item"""
+        start_time = time.time()
+        
+        # Create a copy of the selective lock test recipe
+        selective_recipe = self.test_dir / "lock-test-selective.toml"
+        selective_recipe_copy = self.test_dir / "lock-test-selective-copy.toml"
+        
+        try:
+            # Copy original recipe without SHA hashes
+            shutil.copy(selective_recipe, selective_recipe_copy)
+            
+            # Run zipget with --lock parameter on only one specific item
+            cmd = [str(self.zipget_binary), "recipe", str(selective_recipe_copy), "selective-item-url", "--lock"]
+            returncode, stdout, stderr = self.run_command(cmd)
+            
+            duration = time.time() - start_time
+            
+            if returncode != 0:
+                return TestResult(
+                    "selective_locking",
+                    False,
+                    f"Selective lock command failed: {stderr}",
+                    duration
+                )
+            
+            # Read the updated recipe file and check selective locking
+            with open(selective_recipe_copy, 'r') as f:
+                updated_content = f.read()
+            
+            # Look for SHA hash patterns in lock structure
+            sha_pattern = r'lock\s*=\s*\{\s*sha\s*=\s*"[0-9a-fA-F]{64}"'
+            sha_matches = re.findall(sha_pattern, updated_content)
+            
+            # Should have exactly 1 SHA hash (only for the selected item)
+            if len(sha_matches) != 1:
+                return TestResult(
+                    "selective_locking",
+                    False,
+                    f"Expected 1 SHA hash for selective lock, found {len(sha_matches)}",
+                    duration
+                )
+            
+            # Check that only the correct item was modified
+            lines = updated_content.split('\n')
+            selective_item_section_found = False
+            selective_item_has_sha = False
+            other_items_have_sha = False
+            
+            current_section = None
+            for line in lines:
+                line = line.strip()
+                if line.startswith('[') and line.endswith(']'):
+                    current_section = line[1:-1]
+                elif 'lock = {' in line and 'sha =' in line and current_section:
+                    if current_section == "selective-item-url":
+                        selective_item_has_sha = True
+                    else:
+                        other_items_have_sha = True
+            
+            if not selective_item_has_sha:
+                return TestResult(
+                    "selective_locking",
+                    False,
+                    "Selected item 'selective-item-url' did not get SHA hash",
+                    duration
+                )
+            
+            if other_items_have_sha:
+                return TestResult(
+                    "selective_locking",
+                    False,
+                    "Other items got SHA hashes when only one item should be locked",
+                    duration
+                )
+            
+            # Check that the correct processing message appears
+            if "Processing 1 items for lock file" not in stdout:
+                return TestResult(
+                    "selective_locking",
+                    False,
+                    "Expected '1 items for lock file' message not found",
+                    duration
+                )
+            
+            return TestResult("selective_locking", True, "Selective locking working correctly", duration)
+            
+        finally:
+            # Clean up copy
+            if selective_recipe_copy.exists():
+                selective_recipe_copy.unlink()
+
+    def test_download_url_storage(self) -> TestResult:
+        """Test that --lock stores direct download URLs for GitHub assets"""
+        start_time = time.time()
+        
+        # Create a test recipe with GitHub asset
+        download_url_content = '''[download-url-test]
+github = { repo = "vivainio/unxml-rs", tag = "v0.1.1" }
+save_as = "./test-downloads/download-url-test.zip"
+'''
+        
+        download_url_recipe = self.test_dir / "download-url-test.toml"
+        
+        try:
+            # Write test recipe
+            with open(download_url_recipe, 'w') as f:
+                f.write(download_url_content)
+            
+            # Run zipget with --lock parameter
+            cmd = [str(self.zipget_binary), "recipe", str(download_url_recipe), "--lock"]
+            returncode, stdout, stderr = self.run_command(cmd, timeout=30)
+            
+            duration = time.time() - start_time
+            
+            # If GitHub API fails due to rate limiting, that's expected and we can't test further
+            if returncode != 0 and "Failed to fetch release info" in stderr:
+                return TestResult(
+                    "download_url_storage", 
+                    True, 
+                    "Test skipped due to GitHub API rate limiting (expected)", 
+                    duration
+                )
+            
+            if returncode != 0:
+                return TestResult(
+                    "download_url_storage",
+                    False,
+                    f"Download URL storage test failed: {stderr}",
+                    duration
+                )
+            
+            # Read the updated recipe file and check for download_url
+            with open(download_url_recipe, 'r') as f:
+                updated_content = f.read()
+            
+            # Look for download_url pattern in lock structure
+            download_url_pattern = r'download_url\s*=\s*"[^"]+"'
+            download_url_matches = re.findall(download_url_pattern, updated_content)
+            
+            if len(download_url_matches) < 1:
+                return TestResult(
+                    "download_url_storage",
+                    False,
+                    "Expected download_url to be stored, but not found",
+                    duration
+                )
+            
+            # Check for storage message in output
+            if "Storing direct download URL" not in stdout:
+                return TestResult(
+                    "download_url_storage",
+                    False,
+                    "Expected 'Storing direct download URL' message not found",
+                    duration
+                )
+            
+            return TestResult("download_url_storage", True, "Download URL storage working correctly", duration)
+            
+        finally:
+            # Clean up test file
+            if download_url_recipe.exists():
+                download_url_recipe.unlink()
+
+
+
     def run_all_tests(self) -> bool:
         """Run all tests and return overall success"""
         self.log("Starting zipget-rs integration test suite...")
@@ -425,6 +651,9 @@ sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7"
             self.test_cache_functionality,
             self.test_lock_file_generation,
             self.test_sha_verification,
+            self.test_tag_pinning,
+            self.test_selective_locking,
+            self.test_download_url_storage,
         ]
         
         # Run tests

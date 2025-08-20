@@ -1,0 +1,12 @@
+# Lock Test Recipe for GitHub releases without explicit tags
+# Tests --lock parameter auto-pins GitHub releases to specific tags
+
+[github-no-tag]
+github = { repo = "vivainio/unxml-rs" }
+unzip_to = "./test-output/github-no-tag"
+save_as = "./test-downloads/github-no-tag.zip"
+
+[github-with-asset-no-tag]
+github = { repo = "vivainio/unxml-rs", asset = "linux" }
+unzip_to = "./test-output/github-with-asset-no-tag"
+save_as = "./test-downloads/github-with-asset-no-tag.zip"
