@@ -3,8 +3,10 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use glob_match::glob_match;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use tar::Archive;
@@ -35,6 +37,9 @@ enum Commands {
         /// AWS profile to use for S3 downloads
         #[arg(short, long)]
         profile: Option<String>,
+        /// Write SHA-256 hashes for each file to the recipe (creates lock file)
+        #[arg(long)]
+        lock: bool,
     },
     /// Fetch the latest release binary from a GitHub repository
     Github {
@@ -143,6 +148,8 @@ struct FetchItem {
     install_exes: Option<Vec<String>>,
     /// Install executable directly without creating shims (defaults to false on Windows)
     no_shim: Option<bool>,
+    /// SHA-256 hash for file verification (hex string)
+    sha: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -172,6 +179,56 @@ fn get_cache_dir() -> Result<std::path::PathBuf> {
     fs::create_dir_all(&cache_dir)
         .with_context(|| format!("Failed to create cache directory: {}", cache_dir.display()))?;
     Ok(cache_dir)
+}
+
+fn compute_sha256(file_path: &Path) -> Result<String> {
+    let mut file = fs::File::open(file_path).with_context(|| {
+        format!(
+            "Failed to open file for SHA verification: {}",
+            file_path.display()
+        )
+    })?;
+
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 8192];
+
+    loop {
+        let bytes_read = file.read(&mut buffer).with_context(|| {
+            format!(
+                "Failed to read file for SHA verification: {}",
+                file_path.display()
+            )
+        })?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn compute_sha256_from_bytes(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
+}
+
+fn verify_sha256(file_path: &Path, expected_sha: &str) -> Result<bool> {
+    let computed_sha = compute_sha256(file_path)?;
+    let expected_sha_lower = expected_sha.to_lowercase();
+
+    if computed_sha == expected_sha_lower {
+        println!("✓ SHA-256 verification passed: {expected_sha_lower}");
+        Ok(true)
+    } else {
+        println!("✗ SHA-256 verification failed!");
+        println!("  Expected: {expected_sha_lower}");
+        println!("  Computed: {computed_sha}");
+        Ok(false)
+    }
 }
 
 fn is_s3_url(url: &str) -> bool {
@@ -292,6 +349,7 @@ fn main() -> Result<()> {
             tag,
             upgrade,
             profile,
+            lock,
         } => {
             if upgrade {
                 upgrade_recipe(&file)?;
@@ -302,76 +360,155 @@ fn main() -> Result<()> {
                 let recipe: Recipe = toml::from_str(&recipe_content)
                     .with_context(|| "Failed to parse recipe TOML")?;
 
-                // Filter items by tag if specified
-                let items_to_process: Vec<FetchItem> = if let Some(filter_tag) = &tag {
-                    recipe
-                        .into_iter()
-                        .filter(|(k, _)| k.contains(filter_tag))
-                        .map(|(_, v)| v)
-                        .collect()
-                } else {
-                    recipe.into_values().collect()
-                };
+                if lock {
+                    // Process items sequentially when generating lock file to maintain order
+                    let mut updated_recipe = recipe.clone();
+                    let mut any_updated = false;
 
-                if items_to_process.is_empty() {
-                    if let Some(filter_tag) = &tag {
-                        println!("No items found with tag: {filter_tag}");
+                    // Collect section names and items to process separately to avoid borrowing issues
+                    let sections_to_process: Vec<(String, FetchItem)> = recipe
+                        .iter()
+                        .filter(|(section_name, _)| {
+                            if let Some(filter_tag) = &tag {
+                                section_name.contains(filter_tag)
+                            } else {
+                                true
+                            }
+                        })
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+
+                    if sections_to_process.is_empty() {
+                        if let Some(filter_tag) = &tag {
+                            println!("No items found with tag: {filter_tag}");
+                        } else {
+                            println!("No items to process in recipe");
+                        }
+                        return Ok(());
+                    }
+
+                    println!(
+                        "Processing {} items for lock file...",
+                        sections_to_process.len()
+                    );
+
+                    for (section_name, fetch_item) in sections_to_process {
+                        println!("Processing {section_name} for lock file...");
+                        match process_fetch_item(&fetch_item, profile.as_deref()) {
+                            Ok(Some(computed_sha)) => {
+                                // Update the recipe with computed SHA
+                                if let Some(item) = updated_recipe.get_mut(&section_name) {
+                                    let old_sha =
+                                        item.sha.clone().unwrap_or_else(|| "none".to_string());
+                                    println!("  SHA-256: {old_sha} -> {computed_sha}");
+                                    if old_sha != computed_sha {
+                                        item.sha = Some(computed_sha);
+                                        any_updated = true;
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                return Err(anyhow::anyhow!(
+                                    "Failed to compute SHA for {}",
+                                    section_name
+                                ));
+                            }
+                            Err(e) => {
+                                return Err(anyhow::anyhow!(
+                                    "Failed to process {}: {}",
+                                    section_name,
+                                    e
+                                ));
+                            }
+                        }
+                    }
+
+                    if any_updated {
+                        // Write updated recipe back to file
+                        let updated_content = toml::to_string_pretty(&updated_recipe)
+                            .with_context(
+                                || "Failed to serialize updated recipe with SHA hashes",
+                            )?;
+
+                        fs::write(&file, updated_content)
+                            .with_context(|| format!("Failed to write lock file to {file}"))?;
+
+                        println!("Lock file updated with SHA-256 hashes!");
                     } else {
-                        println!("No items to process in recipe");
+                        println!("All SHA-256 hashes were already up to date.");
                     }
-                    return Ok(());
-                }
-
-                if let Some(filter_tag) = &tag {
-                    println!(
-                        "Processing {} items with tag: {}",
-                        items_to_process.len(),
-                        filter_tag
-                    );
                 } else {
-                    println!(
-                        "Processing all {} items from recipe",
-                        items_to_process.len()
-                    );
-                }
+                    // Filter items by tag if specified
+                    let items_to_process: Vec<FetchItem> = if let Some(filter_tag) = &tag {
+                        recipe
+                            .into_iter()
+                            .filter(|(k, _)| k.contains(filter_tag))
+                            .map(|(_, v)| v)
+                            .collect()
+                    } else {
+                        recipe.into_values().collect()
+                    };
 
-                // Process each fetch item concurrently using threads
-                let mut handles = Vec::new();
-
-                for fetch_item in items_to_process {
-                    let profile = profile.clone();
-
-                    let handle = std::thread::spawn(move || {
-                        process_fetch_item(&fetch_item, profile.as_deref())
-                    });
-
-                    handles.push(handle);
-                }
-
-                // Wait for all downloads to complete and collect any errors
-                let mut errors = Vec::new();
-                for (i, handle) in handles.into_iter().enumerate() {
-                    match handle.join() {
-                        Ok(Ok(())) => {
-                            // Download succeeded
+                    if items_to_process.is_empty() {
+                        if let Some(filter_tag) = &tag {
+                            println!("No items found with tag: {filter_tag}");
+                        } else {
+                            println!("No items to process in recipe");
                         }
-                        Ok(Err(e)) => {
-                            errors.push(format!("Item {}: {}", i + 1, e));
-                        }
-                        Err(_) => {
-                            errors.push(format!("Item {}: Thread panicked", i + 1));
+                        return Ok(());
+                    }
+
+                    if let Some(filter_tag) = &tag {
+                        println!(
+                            "Processing {} items with tag: {}",
+                            items_to_process.len(),
+                            filter_tag
+                        );
+                    } else {
+                        println!(
+                            "Processing all {} items from recipe",
+                            items_to_process.len()
+                        );
+                    }
+
+                    // Process each fetch item concurrently using threads (normal mode)
+                    let mut handles = Vec::new();
+
+                    for fetch_item in items_to_process {
+                        let profile = profile.clone();
+
+                        let handle = std::thread::spawn(move || {
+                            process_fetch_item(&fetch_item, profile.as_deref())
+                        });
+
+                        handles.push(handle);
+                    }
+
+                    // Wait for all downloads to complete and collect any errors
+                    let mut errors = Vec::new();
+                    for (i, handle) in handles.into_iter().enumerate() {
+                        match handle.join() {
+                            Ok(Ok(_)) => {
+                                // Download succeeded
+                            }
+                            Ok(Err(e)) => {
+                                errors.push(format!("Item {}: {}", i + 1, e));
+                            }
+                            Err(_) => {
+                                errors.push(format!("Item {}: Thread panicked", i + 1));
+                            }
                         }
                     }
-                }
 
-                if !errors.is_empty() {
-                    return Err(anyhow::anyhow!(
-                        "Some downloads failed:\n{}",
-                        errors.join("\n")
-                    ));
-                }
+                    if !errors.is_empty() {
+                        return Err(anyhow::anyhow!(
+                            "Some downloads failed:\n{}",
+                            errors.join("\n")
+                        ));
+                    }
 
-                println!("All downloads and extractions completed successfully!");
+                    println!("All downloads and extractions completed successfully!");
+                }
             }
         }
         Commands::Github {
@@ -452,7 +589,10 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> Result<()> {
+fn process_fetch_item(
+    fetch_item: &FetchItem,
+    global_profile: Option<&str>,
+) -> Result<Option<String>> {
     let cache_dir = get_cache_dir()?;
 
     let (download_url, filename) = if let Some(url) = &fetch_item.url {
@@ -499,7 +639,7 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         ));
     };
 
-    let url_hash = format!("{:x}", md5::compute(&download_url));
+    let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
     let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
@@ -528,13 +668,26 @@ fn process_fetch_item(fetch_item: &FetchItem, global_profile: Option<&str>) -> R
         println!("Saved as: {save_as}");
     }
 
+    // Verify SHA if specified
+    if let Some(expected_sha) = &fetch_item.sha {
+        println!("Verifying SHA-256...");
+        if !verify_sha256(&file_path, expected_sha)? {
+            return Err(anyhow::anyhow!(
+                "SHA-256 verification failed for downloaded file"
+            ));
+        }
+    }
+
+    // Compute SHA for lock file generation (always compute, return for potential use)
+    let computed_sha = compute_sha256(&file_path)?;
+
     // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {unzip_to}");
         extract_archive_with_options(&file_path, unzip_to, fetch_item.files.as_deref(), true)?;
     }
 
-    Ok(())
+    Ok(Some(computed_sha))
 }
 
 fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {
@@ -987,7 +1140,7 @@ fn fetch_github_release(
     let download_url = &asset.browser_download_url;
     let filename = get_filename_from_url(download_url);
 
-    let url_hash = format!("{:x}", md5::compute(download_url));
+    let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
     let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
@@ -1041,7 +1194,7 @@ fn fetch_direct_url(
     let cache_dir = get_cache_dir()?;
     let filename = get_filename_from_url(url);
 
-    let url_hash = format!("{:x}", md5::compute(url));
+    let url_hash = compute_sha256_from_bytes(url.as_bytes());
     let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 
@@ -1233,7 +1386,7 @@ fn run_package(
         // Use caching mechanism
         let cache_dir = get_cache_dir()?;
         let filename = get_filename_from_url(&download_url);
-        let url_hash = format!("{:x}", md5::compute(&download_url));
+        let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
         let cached_filename = format!("{url_hash}_{filename}");
         let cached_file_path = cache_dir.join(&cached_filename);
 
@@ -1249,7 +1402,7 @@ fn run_package(
         // Handle direct URL
         let cache_dir = get_cache_dir()?;
         let filename = get_filename_from_url(source);
-        let url_hash = format!("{:x}", md5::compute(source));
+        let url_hash = compute_sha256_from_bytes(source.as_bytes());
         let cached_filename = format!("{url_hash}_{filename}");
         let cached_file_path = cache_dir.join(&cached_filename);
 
@@ -1755,7 +1908,7 @@ fn install_package(
         (source.to_string(), filename)
     };
 
-    let url_hash = format!("{:x}", md5::compute(&download_url));
+    let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
     let cached_filename = format!("{url_hash}_{filename}");
     let cached_file_path = cache_dir.join(&cached_filename);
 

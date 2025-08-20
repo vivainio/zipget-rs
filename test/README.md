@@ -5,7 +5,9 @@ This directory contains integration tests for the zipget-rs project.
 ## Files
 
 - `integration-test.toml` - Test recipe that covers various zipget-rs functionality
+- `lock-test.toml` - Test recipe for --lock functionality and SHA verification
 - `test-suite.py` - Python test runner that executes tests and validates results
+- `ci-test-suite.py` - CI-specific test runner
 - `README.md` - This documentation file
 
 ## Test Coverage
@@ -19,6 +21,8 @@ The integration tests cover:
 - **File Filtering**: Using glob patterns to extract specific files
 - **Caching**: Verify that downloaded files are cached properly
 - **Individual Commands**: Test standalone GitHub download commands
+- **Lock File Generation**: Test `--lock` parameter generates SHA-256 hashes
+- **SHA Verification**: Test SHA-256 verification of downloaded files
 
 ## Prerequisites
 
@@ -62,7 +66,9 @@ The test suite will:
 5. Check file sizes and content
 6. Test individual commands
 7. Verify caching functionality
-8. Print a detailed summary
+8. Test lock file generation with `--lock` parameter
+9. Test SHA-256 verification (both success and failure cases)
+10. Print a detailed summary
 
 ### Example Output
 ```
@@ -77,11 +83,13 @@ The test suite will:
 [12:35:15] INFO: PASS: extracted_content
 [12:35:20] INFO: PASS: individual_github_command (4.23s)
 [12:35:25] INFO: PASS: cache_functionality (5.12s)
+[12:35:25] INFO: PASS: lock_file_generation (0.29s)
+[12:35:25] INFO: PASS: sha_verification (0.03s)
 ==================================================
 TEST SUMMARY
 ==================================================
-Total tests: 7
-Passed: 7
+Total tests: 9
+Passed: 9
 Failed: 0
 Overall result: SUCCESS
 ```

@@ -9,6 +9,7 @@ import sys
 import subprocess
 import shutil
 import time
+import re
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -280,6 +281,132 @@ class ZipgetTestSuite:
         
         return TestResult("cache_functionality", True, "Cache functionality working", duration)
 
+    def test_lock_file_generation(self) -> TestResult:
+        """Test --lock parameter generates SHA hashes in recipe file"""
+        start_time = time.time()
+        
+        # Create a copy of the lock test recipe
+        lock_recipe = self.test_dir / "lock-test.toml"
+        lock_recipe_copy = self.test_dir / "lock-test-copy.toml"
+        
+        try:
+            # Copy original recipe without SHA hashes
+            shutil.copy(lock_recipe, lock_recipe_copy)
+            
+            # Run zipget with --lock parameter
+            cmd = [str(self.zipget_binary), "recipe", str(lock_recipe_copy), "--lock"]
+            returncode, stdout, stderr = self.run_command(cmd)
+            
+            duration = time.time() - start_time
+            
+            if returncode != 0:
+                return TestResult(
+                    "lock_file_generation",
+                    False,
+                    f"Lock command failed: {stderr}",
+                    duration
+                )
+            
+            # Read the updated recipe file and check for SHA hashes
+            with open(lock_recipe_copy, 'r') as f:
+                updated_content = f.read()
+            
+            # Look for SHA hash patterns (64-character hex strings)
+            sha_pattern = r'sha\s*=\s*"[0-9a-fA-F]{64}"'
+            sha_matches = re.findall(sha_pattern, updated_content)
+            
+            if len(sha_matches) < 2:  # Should have SHA for both test items
+                return TestResult(
+                    "lock_file_generation",
+                    False,
+                    f"Expected 2 SHA hashes, found {len(sha_matches)}",
+                    duration
+                )
+            
+            return TestResult("lock_file_generation", True, "Lock file generation successful", duration)
+            
+        finally:
+            # Clean up copy
+            if lock_recipe_copy.exists():
+                lock_recipe_copy.unlink()
+
+    def test_sha_verification(self) -> TestResult:
+        """Test SHA verification when processing recipe with hashes"""
+        start_time = time.time()
+        
+        # Create a test recipe with known SHA hash
+        test_recipe_content = '''[sha-test]
+url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+save_as = "./test-downloads/sha-verify-test.zip"
+sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7"
+'''
+        
+        sha_test_recipe = self.test_dir / "sha-test.toml"
+        
+        try:
+            # Write test recipe
+            with open(sha_test_recipe, 'w') as f:
+                f.write(test_recipe_content)
+            
+            # Run zipget with SHA verification
+            cmd = [str(self.zipget_binary), "recipe", str(sha_test_recipe)]
+            returncode, stdout, stderr = self.run_command(cmd)
+            
+            duration = time.time() - start_time
+            
+            if returncode != 0:
+                return TestResult(
+                    "sha_verification",
+                    False,
+                    f"SHA verification failed: {stderr}",
+                    duration
+                )
+            
+            # Check that verification message appears in output
+            if "SHA-256 verification passed" not in stdout:
+                return TestResult(
+                    "sha_verification",
+                    False,
+                    "SHA verification message not found in output",
+                    duration
+                )
+            
+            # Test with bad SHA hash to ensure verification catches errors
+            bad_sha_content = test_recipe_content.replace(
+                "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7",
+                "badbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbad"
+            )
+            
+            with open(sha_test_recipe, 'w') as f:
+                f.write(bad_sha_content)
+            
+            # This should fail
+            cmd = [str(self.zipget_binary), "recipe", str(sha_test_recipe)]
+            returncode, stdout, stderr = self.run_command(cmd)
+            
+            if returncode == 0:  # Should have failed!
+                return TestResult(
+                    "sha_verification",
+                    False,
+                    "Bad SHA hash should have caused failure",
+                    duration
+                )
+            
+            if "SHA-256 verification failed" not in stderr:
+                return TestResult(
+                    "sha_verification",
+                    False,
+                    "SHA verification failure message not found",
+                    duration
+                )
+            
+            return TestResult("sha_verification", True, "SHA verification working correctly", duration)
+            
+        finally:
+            # Clean up test file
+            if sha_test_recipe.exists():
+                sha_test_recipe.unlink()
+
     def run_all_tests(self) -> bool:
         """Run all tests and return overall success"""
         self.log("Starting zipget-rs integration test suite...")
@@ -296,6 +423,8 @@ class ZipgetTestSuite:
             self.test_extracted_content,
             self.test_individual_github_command,
             self.test_cache_functionality,
+            self.test_lock_file_generation,
+            self.test_sha_verification,
         ]
         
         # Run tests

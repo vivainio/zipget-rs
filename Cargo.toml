@@ -7,7 +7,6 @@ edition = "2024"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 ureq = { version = "2.0", features = ["json"] }
-md5 = "0.7"
 zip = "0.6"
 tar = "0.4"
 flate2 = "1.0"
@@ -15,9 +14,7 @@ anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }
 glob-match = "0.2"
 dirs = "6.0.0"
-
-# Alternative lighter dependencies (commented out):
-# sha2 = "0.10"  # Instead of md5
+sha2 = "0.10"  # SHA-256 for verification and caching
 
 [profile.release]
 strip = true          # Remove debug symbols
