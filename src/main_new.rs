@@ -1,5 +1,5 @@
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    zipget::cli::run()
+    zipget_rs::cli::run()
 }
