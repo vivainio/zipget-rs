@@ -30,6 +30,10 @@ class ZipgetCITestSuite:
         self.test_downloads_dir = self.root_dir / "test-downloads"
         self.zipget_binary = self.root_dir / "target" / "release" / "zipget"
         
+        # Windows executable extension
+        if os.name == 'nt':
+            self.zipget_binary = self.zipget_binary.with_suffix('.exe')
+        
         self.results: List[TestResult] = []
 
     def log(self, message: str, level: str = "INFO"):
