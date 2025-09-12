@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
-use crate::models::{FetchItem, LockResult, Recipe, LockInfo};
+use crate::models::{FetchItem, LockResult, Recipe, LockInfo, GitHubRelease, GitHubAsset};
 use crate::download::http;
 use crate::archive::{zip, tar};
 use crate::cache::get_cache_dir;
@@ -182,8 +182,8 @@ fn process_recipe_for_lock(
     }
 
     if any_updated {
-        // Write updated recipe back to file
-        let updated_content = toml::to_string_pretty(&updated_recipe)
+        // Write updated recipe back to file with inline lock tables
+        let updated_content = serialize_recipe_with_inline_locks(&updated_recipe)
             .with_context(|| "Failed to serialize updated recipe with SHA hashes")?;
 
         fs::write(file_path, updated_content)
@@ -195,6 +195,66 @@ fn process_recipe_for_lock(
     }
 
     Ok(())
+}
+
+/// Serialize recipe with inline lock tables to match expected test format
+fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
+    let mut output = String::new();
+    
+    for (section_name, fetch_item) in recipe {
+        output.push_str(&format!("[{}]\n", section_name));
+        
+        // Serialize basic fields
+        if let Some(url) = &fetch_item.url {
+            output.push_str(&format!("url = \"{}\"\n", url));
+        }
+        
+        if let Some(save_as) = &fetch_item.save_as {
+            output.push_str(&format!("save_as = \"{}\"\n", save_as));
+        }
+        
+        if let Some(unzip_to) = &fetch_item.unzip_to {
+            output.push_str(&format!("unzip_to = \"{}\"\n", unzip_to));
+        }
+        
+        if let Some(files) = &fetch_item.files {
+            output.push_str(&format!("files = \"{}\"\n", files));
+        }
+        
+        if let Some(profile) = &fetch_item.profile {
+            output.push_str(&format!("profile = \"{}\"\n", profile));
+        }
+        
+        // Handle GitHub configuration
+        if let Some(github) = &fetch_item.github {
+            let mut github_parts = vec![format!("repo = \"{}\"", github.repo)];
+            if let Some(asset) = &github.asset {
+                github_parts.push(format!("asset = \"{}\"", asset));
+            }
+            if let Some(tag) = &github.tag {
+                github_parts.push(format!("tag = \"{}\"", tag));
+            }
+            output.push_str(&format!("github = {{ {} }}\n", github_parts.join(", ")));
+        }
+        
+        // Handle lock information as inline table
+        if let Some(lock) = &fetch_item.lock {
+            let mut lock_parts = Vec::new();
+            if let Some(sha) = &lock.sha {
+                lock_parts.push(format!("sha = \"{}\"", sha));
+            }
+            if let Some(download_url) = &lock.download_url {
+                lock_parts.push(format!("download_url = \"{}\"", download_url));
+            }
+            if !lock_parts.is_empty() {
+                output.push_str(&format!("lock = {{ {} }}\n", lock_parts.join(", ")));
+            }
+        }
+        
+        output.push('\n');
+    }
+    
+    Ok(output)
 }
 
 /// Process a single fetch item from a recipe
@@ -217,11 +277,40 @@ pub fn process_fetch_item(
         println!("Processing URL: {url}");
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
-    } else if let Some(_github) = &fetch_item.github {
-        // TODO: Implement GitHub processing
-        return Err(anyhow::anyhow!(
-            "GitHub processing not yet implemented in refactored version"
-        ));
+    } else if let Some(github) = &fetch_item.github {
+        println!("Processing GitHub repo: {}", github.repo);
+
+        let (download_url, filename) = if let Some(asset_name) = &github.asset {
+            // User specified asset name - use the existing logic
+            println!("Using specified asset: {asset_name}");
+            let github_url =
+                get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
+            let filename = get_filename_from_url(&github_url);
+            (github_url, filename)
+        } else {
+            // No asset specified - use intelligent asset detection
+            println!("No asset specified, analyzing available assets...");
+            let (release, best_asset) =
+                get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+
+            // Find the matching asset URL
+            let asset = release
+                .assets
+                .iter()
+                .find(|asset| asset.name == best_asset)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Selected asset '{}' not found in release assets",
+                        best_asset
+                    )
+                })?;
+
+            println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
+            let filename = get_filename_from_url(&asset.browser_download_url);
+            (asset.browser_download_url.clone(), filename)
+        };
+
+        (download_url, filename)
     } else {
         return Err(anyhow::anyhow!(
             "FetchItem must have either 'url' or 'github' specified"
@@ -257,10 +346,12 @@ pub fn process_fetch_item(
         println!("Saved as: {save_as}");
     }
 
-    // Verify SHA if specified
+    // Verify SHA if specified in lock structure
     if let Some(expected_sha) = fetch_item.lock.as_ref().and_then(|l| l.sha.as_ref()) {
         println!("Verifying SHA-256...");
-        if !verify_sha256(&file_path, expected_sha)? {
+        if verify_sha256(&file_path, expected_sha)? {
+            println!("SHA-256 verification passed");
+        } else {
             return Err(anyhow::anyhow!(
                 "SHA-256 verification failed for downloaded file"
             ));
@@ -297,16 +388,123 @@ pub fn process_fetch_item_for_lock(
     fetch_item: &FetchItem,
     global_profile: Option<&str>,
 ) -> Result<LockResult> {
-    // For now, use the regular processing but only return the hash
-    if let Some(sha) = process_fetch_item(fetch_item, global_profile)? {
-        Ok(LockResult {
-            sha,
-            resolved_tag: None, // TODO: Implement for GitHub releases
-            download_url: fetch_item.url.clone(), // Direct URL for now
-        })
+    let cache_dir = get_cache_dir()?;
+    let profile = fetch_item.profile.as_deref().or(global_profile);
+
+    let (download_url, filename, resolved_tag) = if let Some(url) = &fetch_item.url {
+        println!("Processing URL for lock: {url}");
+        let filename = get_filename_from_url(url);
+        (url.clone(), filename, None)
+    } else if let Some(github) = &fetch_item.github {
+        println!("Processing GitHub repo for lock: {}", github.repo);
+
+        let (download_url, filename, resolved_tag) = if let Some(asset_name) = &github.asset {
+            println!("Using specified asset: {asset_name}");
+            let github_url = get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
+            let filename = get_filename_from_url(&github_url);
+            
+            // If no tag specified, get the resolved tag for pinning
+            let resolved_tag = if github.tag.is_none() {
+                println!("No tag specified, fetching latest for pinning...");
+                match get_latest_github_tag(&github.repo) {
+                    Ok(tag) => {
+                        println!("Pinning GitHub release to tag: {tag}");
+                        Some(tag)
+                    }
+                    Err(e) => {
+                        println!("Warning: Could not fetch latest tag: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            
+            (github_url, filename, resolved_tag)
+        } else {
+            println!("No asset specified, analyzing available assets...");
+            let (release, best_asset) = get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+
+            let asset = release
+                .assets
+                .iter()
+                .find(|asset| asset.name == best_asset)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Selected asset '{}' not found in release assets",
+                        best_asset
+                    )
+                })?;
+
+            println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
+            println!("Storing direct download URL: {}", asset.browser_download_url);
+            
+            let filename = get_filename_from_url(&asset.browser_download_url);
+            
+            // If no tag specified, use the resolved tag for pinning
+            let resolved_tag = if github.tag.is_none() {
+                println!("Pinning GitHub release to tag: {}", release.tag_name);
+                Some(release.tag_name.clone())
+            } else {
+                None
+            };
+            
+            (asset.browser_download_url.clone(), filename, resolved_tag)
+        };
+
+        (download_url, filename, resolved_tag)
     } else {
-        Err(anyhow::anyhow!("Failed to compute SHA for item"))
+        return Err(anyhow::anyhow!(
+            "FetchItem must have either 'url' or 'github' specified"
+        ));
+    };
+
+    // Download and compute SHA
+    let url_hash = compute_sha256_from_bytes(download_url.as_bytes());
+    let cached_filename = format!("{url_hash}_{filename}");
+    let cached_file_path = cache_dir.join(&cached_filename);
+
+    let file_path = if cached_file_path.exists() {
+        println!("Found cached file: {}", cached_file_path.display());
+        cached_file_path
+    } else {
+        println!("Downloading for SHA computation: {download_url}");
+        http::download_file(&download_url, &cached_file_path, profile)?;
+        cached_file_path
+    };
+
+    // Compute SHA-256
+    let sha = compute_sha256(&file_path)?;
+    println!("SHA-256 computed: {sha}");
+
+    Ok(LockResult {
+        sha,
+        resolved_tag,
+        download_url: Some(download_url),
+    })
+}
+
+/// Get the latest GitHub tag for a repository
+fn get_latest_github_tag(repo: &str) -> Result<String> {
+    let api_url = format!("https://api.github.com/repos/{repo}/releases/latest");
+
+    let response = ureq::get(&api_url)
+        .set("User-Agent", "zipget-rs")
+        .call()
+        .with_context(|| format!("Failed to fetch latest release for {repo}"))?;
+
+    if response.status() != 200 {
+        return Err(anyhow::anyhow!(
+            "GitHub API request failed with status: {}",
+            response.status()
+        ));
     }
+
+    let release: GitHubRelease = response
+        .into_json()
+        .with_context(|| "Failed to parse GitHub release JSON")?;
+
+    Ok(release.tag_name)
 }
 
 /// Upgrade recipe to latest GitHub releases
@@ -315,4 +513,183 @@ pub fn upgrade_recipe(file_path: &str) -> Result<()> {
     println!("Recipe upgrade not yet implemented in refactored version");
     println!("File path: {}", file_path);
     Ok(())
+}
+
+/// Get GitHub release URL for a specific asset
+fn get_github_release_url(repo: &str, asset_name: &str, tag: Option<&str>) -> Result<String> {
+    let api_url = if let Some(tag) = tag {
+        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
+    } else {
+        format!("https://api.github.com/repos/{repo}/releases/latest")
+    };
+
+    let response = ureq::get(&api_url)
+        .set("User-Agent", "zipget-rs")
+        .call()
+        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
+
+    if response.status() != 200 {
+        return Err(anyhow::anyhow!(
+            "GitHub API request failed with status: {}",
+            response.status()
+        ));
+    }
+
+    let release: GitHubRelease = response
+        .into_json()
+        .with_context(|| "Failed to parse GitHub release JSON")?;
+
+    // Find the matching asset (case-insensitive)
+    let asset = release
+        .assets
+        .iter()
+        .find(|asset| {
+            asset
+                .name
+                .to_lowercase()
+                .contains(&asset_name.to_lowercase())
+        })
+        .ok_or_else(|| anyhow::anyhow!("Asset '{}' not found in release assets", asset_name))?;
+
+    Ok(asset.browser_download_url.clone())
+}
+
+/// Get the best binary from a GitHub release automatically
+fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, String)> {
+    let api_url = if let Some(tag) = tag {
+        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
+    } else {
+        format!("https://api.github.com/repos/{repo}/releases/latest")
+    };
+
+    println!("Analyzing available binaries from: {api_url}");
+
+    let response = ureq::get(&api_url)
+        .set("User-Agent", "zipget-rs")
+        .call()
+        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
+
+    if response.status() != 200 {
+        return Err(anyhow::anyhow!(
+            "GitHub API request failed with status: {}",
+            response.status()
+        ));
+    }
+
+    let release: GitHubRelease = response
+        .into_json()
+        .with_context(|| "Failed to parse GitHub release JSON")?;
+
+    println!(
+        "Found {} assets in release '{}':",
+        release.assets.len(),
+        release.name
+    );
+    for asset in &release.assets {
+        println!("  - {}", asset.name);
+    }
+
+    let best_match = if let Some(best_match) = find_best_matching_binary(&release.assets) {
+        println!("Selected best match: {best_match}");
+        best_match
+    } else {
+        // Fallback to basic guess
+        println!("No good match found, falling back to basic guess");
+        guess_binary_name()
+    };
+
+    Ok((release, best_match))
+}
+
+/// Find the best matching binary from available assets
+fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+
+    // Define priority patterns for different OS/arch combinations
+    let patterns = match (os, arch) {
+        ("windows", "x86_64") => vec![
+            "windows-x86_64", "win64", "windows-amd64", "x86_64-pc-windows", 
+            "windows", "win", "x64", "amd64"
+        ],
+        ("windows", "x86") => vec![
+            "windows-i686", "win32", "windows-x86", "i686-pc-windows",
+            "windows", "win", "x86", "i386"
+        ],
+        ("linux", "x86_64") => vec![
+            "linux-x86_64", "linux-amd64", "x86_64-unknown-linux", "linux64",
+            "linux", "x64", "amd64"
+        ],
+        ("linux", "aarch64") => vec![
+            "linux-aarch64", "linux-arm64", "aarch64-unknown-linux",
+            "linux", "arm64"
+        ],
+        ("macos", "x86_64") => vec![
+            "darwin-x86_64", "macos-x86_64", "x86_64-apple-darwin", "osx-x64",
+            "darwin", "macos", "osx", "mac"
+        ],
+        ("macos", "aarch64") => vec![
+            "darwin-aarch64", "macos-aarch64", "aarch64-apple-darwin", "darwin-arm64",
+            "darwin", "macos", "osx", "mac", "arm64"
+        ],
+        _ => vec!["universal", "any"],
+    };
+
+    // Score each asset based on pattern matches
+    let mut scored_assets: Vec<(i32, &GitHubAsset)> = assets
+        .iter()
+        .filter(|asset| {
+            // Skip non-archive files unless they're executables
+            let name_lower = asset.name.to_lowercase();
+            name_lower.ends_with(".zip") 
+                || name_lower.ends_with(".tar.gz") 
+                || name_lower.ends_with(".tgz")
+                || (!name_lower.contains(".") && asset.size > 1000) // Likely executable
+        })
+        .map(|asset| {
+            let name_lower = asset.name.to_lowercase();
+            let mut score = 0;
+
+            // Give points based on pattern matches (earlier patterns get higher scores)
+            for (i, pattern) in patterns.iter().enumerate() {
+                if name_lower.contains(pattern) {
+                    score += 100 - i as i32; // Earlier patterns get higher scores
+                }
+            }
+
+            // Prefer zip files on Windows, tar.gz on others
+            if os == "windows" && name_lower.ends_with(".zip") {
+                score += 10;
+            } else if os != "windows" && (name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tgz")) {
+                score += 10;
+            }
+
+            // Prefer smaller files (likely stripped binaries)
+            if asset.size < 50_000_000 { // Less than 50MB
+                score += 5;
+            }
+
+            (score, asset)
+        })
+        .collect();
+
+    // Sort by score (highest first)
+    scored_assets.sort_by(|a, b| b.0.cmp(&a.0));
+
+    if let Some((score, asset)) = scored_assets.first() {
+        if *score > 0 {
+            return Some(asset.name.clone());
+        }
+    }
+
+    None
+}
+
+/// Guess a basic binary name as fallback
+fn guess_binary_name() -> String {
+    if std::env::consts::OS == "windows" {
+        "windows".to_string()
+    } else {
+        "linux".to_string()
+    }
 }

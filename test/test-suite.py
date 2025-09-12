@@ -338,7 +338,7 @@ class ZipgetTestSuite:
         test_recipe_content = '''[sha-test]
 url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
 save_as = "./test-downloads/sha-verify-test.zip"
-sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7"
+lock = { sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7" }
 '''
         
         sha_test_recipe = self.test_dir / "sha-test.toml"

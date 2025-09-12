@@ -180,13 +180,13 @@ class ZipgetCITestSuite:
         """Test GitHub API download command"""
         start_time = time.time()
         
-        test_file = "ci-github-test.zip"
+        test_file = self.root_dir / "ci-github-test.zip"
         cmd = [
             str(self.zipget_binary), 
             "github", 
             "vivainio/unxml-rs",
             "--save-as", 
-            test_file
+            str(test_file)
         ]
         
         returncode, stdout, stderr = self.run_command(cmd)
@@ -200,7 +200,7 @@ class ZipgetCITestSuite:
                 duration
             )
         
-        test_file_path = Path(test_file)
+        test_file_path = test_file
         if not test_file_path.exists():
             return TestResult(
                 "github_api_command",
@@ -238,7 +238,7 @@ class ZipgetCITestSuite:
                 duration
             )
         
-        test_file_path = Path(test_file)
+        test_file_path = self.root_dir / test_file
         if not test_file_path.exists():
             return TestResult(
                 "http_fetch_command",
@@ -280,8 +280,8 @@ class ZipgetCITestSuite:
             )
         
         # Check if files exist
-        file1 = Path("cache-test-1.zip")
-        file2 = Path("cache-test-2.zip")
+        file1 = self.root_dir / "cache-test-1.zip"
+        file2 = self.root_dir / "cache-test-2.zip"
         
         if not file1.exists() or not file2.exists():
             return TestResult(
