@@ -11,6 +11,41 @@
 - Avoid unsafe code unless absolutely necessary and document its use.
 - Write unit tests for all new functionality in the `tests` or `test` directory.
 
+## Pre-Commit Quality Checks
+Before committing any changes, always run these required commands:
+
+1. **Format code with rustfmt:**
+   ```bash
+   cargo fmt
+   ```
+
+2. **Run clippy for linting:**
+   ```bash
+   cargo clippy -- -D warnings
+   ```
+
+3. **Run tests to ensure nothing is broken:**
+   ```bash
+   cargo test
+   ```
+
+### Recommended Pre-Commit Workflow:
+```bash
+# Format code
+cargo fmt
+
+# Check for linting issues
+cargo clippy -- -D warnings
+
+# Run tests
+cargo test
+
+# If all checks pass, commit
+git add .
+git commit -m "Your commit message"
+git push
+```
+
 ## Project-Specific Notes
 - Main entry point: `src/main.rs`
 - Test files are in the `test/` directory.
