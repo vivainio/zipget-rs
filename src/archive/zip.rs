@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use glob_match::glob_match;
 use std::fs;
 use std::path::Path;
 use zip::ZipArchive;
-use glob_match::glob_match;
 
 /// Extract ZIP archive
 pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {

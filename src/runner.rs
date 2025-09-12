@@ -1,8 +1,8 @@
-use anyhow::Result;
-use std::path::{Path, PathBuf};
+use crate::archive::{tar, zip};
 use crate::download::http;
-use crate::archive::{zip, tar};
 use crate::utils::get_filename_from_url;
+use anyhow::Result;
+use std::path::PathBuf;
 
 /// Run a package (download and execute)
 pub fn run_package() -> Result<()> {
@@ -31,12 +31,17 @@ pub fn fetch_direct_url(
 
     // Extract if needed
     if let Some(extract_dir) = unzip_to {
-        println!("Extracting to: {}", extract_dir);
-        
+        println!("Extracting to: {extract_dir}");
+
         if local_path.extension().and_then(|s| s.to_str()) == Some("zip") {
             zip::extract_zip(&local_path, extract_dir, files)?;
-        } else if local_path.file_name().and_then(|s| s.to_str()).unwrap_or("").ends_with(".tar.gz") 
-               || local_path.extension().and_then(|s| s.to_str()) == Some("tgz") {
+        } else if local_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .ends_with(".tar.gz")
+            || local_path.extension().and_then(|s| s.to_str()) == Some("tgz")
+        {
             tar::extract_tar_gz(&local_path, extract_dir, files)?;
         } else {
             println!("Warning: Unknown archive format, skipping extraction");

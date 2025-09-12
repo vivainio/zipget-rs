@@ -1,7 +1,7 @@
+use crate::download::s3;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
-use crate::download::s3;
 
 /// Download file from HTTP/HTTPS URL or S3
 pub fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {

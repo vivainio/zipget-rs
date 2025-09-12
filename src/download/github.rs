@@ -1,11 +1,11 @@
+use crate::cache::get_cache_dir;
+use crate::crypto::compute_sha256_from_bytes;
+use crate::download::http;
+use crate::models::{GitHubAsset, GitHubRelease};
+use crate::utils::get_filename_from_url;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
-use crate::models::{GitHubAsset, GitHubRelease};
-use crate::crypto::compute_sha256_from_bytes;
-use crate::cache::get_cache_dir;
-use crate::utils::get_filename_from_url;
-use crate::download::http;
 
 /// Fetch a GitHub release with the specified parameters
 pub fn fetch_github_release(
@@ -116,12 +116,17 @@ fn extract_archive_with_options(
     extract_to: &str,
     files_pattern: Option<&str>,
 ) -> Result<()> {
-    use crate::archive::{zip, tar};
-    
+    use crate::archive::{tar, zip};
+
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
         zip::extract_zip(file_path, extract_to, files_pattern)?;
-    } else if file_path.file_name().and_then(|s| s.to_str()).unwrap_or("").ends_with(".tar.gz") 
-           || file_path.extension().and_then(|s| s.to_str()) == Some("tgz") {
+    } else if file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .ends_with(".tar.gz")
+        || file_path.extension().and_then(|s| s.to_str()) == Some("tgz")
+    {
         tar::extract_tar_gz(file_path, extract_to, files_pattern)?;
     } else {
         println!("Warning: Unknown archive format, skipping extraction");
@@ -161,7 +166,7 @@ pub fn get_best_binary_from_release(
     // Simple heuristic to find best binary for current platform
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    
+
     println!("Available assets:");
     for asset in &release.assets {
         println!("  - {} ({} bytes)", asset.name, asset.size);
@@ -190,7 +195,10 @@ pub fn get_best_binary_from_release(
         let mut score = 0;
 
         // Prefer executable-like files
-        if name_lower.ends_with(".exe") || name_lower.ends_with(".zip") || name_lower.ends_with(".tar.gz") {
+        if name_lower.ends_with(".exe")
+            || name_lower.ends_with(".zip")
+            || name_lower.ends_with(".tar.gz")
+        {
             score += 10;
         }
 
@@ -214,11 +222,13 @@ pub fn get_best_binary_from_release(
         }
     }
 
-    let asset = best_asset.ok_or_else(|| {
-        anyhow::anyhow!("No suitable binary found for platform {os}-{arch}")
-    })?;
+    let asset = best_asset
+        .ok_or_else(|| anyhow::anyhow!("No suitable binary found for platform {os}-{arch}"))?;
 
-    println!("Auto-selected asset: {} (score: {})", asset.name, best_score);
+    println!(
+        "Auto-selected asset: {} (score: {})",
+        asset.name, best_score
+    );
     let asset_name = asset.name.clone();
     Ok((release, asset_name))
 }
@@ -297,6 +307,6 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
 
 // TODO: Add other GitHub functions here
 // - get_best_binary_from_release
-// - fetch_github_release  
+// - fetch_github_release
 // - get_github_release_url
 // - get_latest_github_tag

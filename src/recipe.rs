@@ -1,12 +1,12 @@
+use crate::archive::{tar, zip};
+use crate::cache::get_cache_dir;
+use crate::crypto::{compute_sha256, compute_sha256_from_bytes, verify_sha256};
+use crate::download::http;
+use crate::models::{FetchItem, GitHubAsset, GitHubRelease, LockInfo, LockResult, Recipe};
+use crate::utils::get_filename_from_url;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
-use crate::models::{FetchItem, LockResult, Recipe, LockInfo, GitHubRelease, GitHubAsset};
-use crate::download::http;
-use crate::archive::{zip, tar};
-use crate::cache::get_cache_dir;
-use crate::crypto::{compute_sha256_from_bytes, compute_sha256, verify_sha256};
-use crate::utils::get_filename_from_url;
 
 /// Process a recipe file with the given parameters
 pub fn process_recipe(
@@ -23,8 +23,8 @@ pub fn process_recipe(
     let recipe_content = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read recipe file: {file_path}"))?;
 
-    let recipe: Recipe = toml::from_str(&recipe_content)
-        .with_context(|| "Failed to parse recipe TOML")?;
+    let recipe: Recipe =
+        toml::from_str(&recipe_content).with_context(|| "Failed to parse recipe TOML")?;
 
     if lock {
         // Lock mode - process sequentially and update file
@@ -36,11 +36,7 @@ pub fn process_recipe(
 }
 
 /// Process recipe items in normal mode
-fn process_recipe_items(
-    recipe: &Recipe,
-    tag: Option<&str>,
-    profile: Option<&str>,
-) -> Result<()> {
+fn process_recipe_items(recipe: &Recipe, tag: Option<&str>, profile: Option<&str>) -> Result<()> {
     // Filter items by tag if specified
     let items_to_process: Vec<(&String, &FetchItem)> = if let Some(filter_tag) = tag {
         recipe
@@ -75,7 +71,7 @@ fn process_recipe_items(
 
     // Process each fetch item (sequentially for now, could be made concurrent later)
     let mut errors = Vec::new();
-    
+
     for (section_name, fetch_item) in items_to_process {
         println!("Processing {section_name}...");
         if let Err(e) = process_fetch_item(fetch_item, profile) {
@@ -200,60 +196,60 @@ fn process_recipe_for_lock(
 /// Serialize recipe with inline lock tables to match expected test format
 fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
     let mut output = String::new();
-    
+
     for (section_name, fetch_item) in recipe {
-        output.push_str(&format!("[{}]\n", section_name));
-        
+        output.push_str(&format!("[{section_name}]\n"));
+
         // Serialize basic fields
         if let Some(url) = &fetch_item.url {
-            output.push_str(&format!("url = \"{}\"\n", url));
+            output.push_str(&format!("url = \"{url}\"\n"));
         }
-        
+
         if let Some(save_as) = &fetch_item.save_as {
-            output.push_str(&format!("save_as = \"{}\"\n", save_as));
+            output.push_str(&format!("save_as = \"{save_as}\"\n"));
         }
-        
+
         if let Some(unzip_to) = &fetch_item.unzip_to {
-            output.push_str(&format!("unzip_to = \"{}\"\n", unzip_to));
+            output.push_str(&format!("unzip_to = \"{unzip_to}\"\n"));
         }
-        
+
         if let Some(files) = &fetch_item.files {
-            output.push_str(&format!("files = \"{}\"\n", files));
+            output.push_str(&format!("files = \"{files}\"\n"));
         }
-        
+
         if let Some(profile) = &fetch_item.profile {
-            output.push_str(&format!("profile = \"{}\"\n", profile));
+            output.push_str(&format!("profile = \"{profile}\"\n"));
         }
-        
+
         // Handle GitHub configuration
         if let Some(github) = &fetch_item.github {
             let mut github_parts = vec![format!("repo = \"{}\"", github.repo)];
             if let Some(asset) = &github.asset {
-                github_parts.push(format!("asset = \"{}\"", asset));
+                github_parts.push(format!("asset = \"{asset}\""));
             }
             if let Some(tag) = &github.tag {
-                github_parts.push(format!("tag = \"{}\"", tag));
+                github_parts.push(format!("tag = \"{tag}\""));
             }
             output.push_str(&format!("github = {{ {} }}\n", github_parts.join(", ")));
         }
-        
+
         // Handle lock information as inline table
         if let Some(lock) = &fetch_item.lock {
             let mut lock_parts = Vec::new();
             if let Some(sha) = &lock.sha {
-                lock_parts.push(format!("sha = \"{}\"", sha));
+                lock_parts.push(format!("sha = \"{sha}\""));
             }
             if let Some(download_url) = &lock.download_url {
-                lock_parts.push(format!("download_url = \"{}\"", download_url));
+                lock_parts.push(format!("download_url = \"{download_url}\""));
             }
             if !lock_parts.is_empty() {
                 output.push_str(&format!("lock = {{ {} }}\n", lock_parts.join(", ")));
             }
         }
-        
+
         output.push('\n');
     }
-    
+
     Ok(output)
 }
 
@@ -374,8 +370,13 @@ pub fn process_fetch_item(
 fn extract_archive(file_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
         zip::extract_zip(file_path, extract_to, file_pattern)?;
-    } else if file_path.file_name().and_then(|s| s.to_str()).unwrap_or("").ends_with(".tar.gz") 
-           || file_path.extension().and_then(|s| s.to_str()) == Some("tgz") {
+    } else if file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .ends_with(".tar.gz")
+        || file_path.extension().and_then(|s| s.to_str()) == Some("tgz")
+    {
         tar::extract_tar_gz(file_path, extract_to, file_pattern)?;
     } else {
         println!("Warning: Unknown archive format, skipping extraction");
@@ -400,9 +401,10 @@ pub fn process_fetch_item_for_lock(
 
         let (download_url, filename, resolved_tag) = if let Some(asset_name) = &github.asset {
             println!("Using specified asset: {asset_name}");
-            let github_url = get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
+            let github_url =
+                get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
             let filename = get_filename_from_url(&github_url);
-            
+
             // If no tag specified, get the resolved tag for pinning
             let resolved_tag = if github.tag.is_none() {
                 println!("No tag specified, fetching latest for pinning...");
@@ -419,11 +421,12 @@ pub fn process_fetch_item_for_lock(
             } else {
                 None
             };
-            
+
             (github_url, filename, resolved_tag)
         } else {
             println!("No asset specified, analyzing available assets...");
-            let (release, best_asset) = get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+            let (release, best_asset) =
+                get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
 
             let asset = release
                 .assets
@@ -437,10 +440,13 @@ pub fn process_fetch_item_for_lock(
                 })?;
 
             println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
-            println!("Storing direct download URL: {}", asset.browser_download_url);
-            
+            println!(
+                "Storing direct download URL: {}",
+                asset.browser_download_url
+            );
+
             let filename = get_filename_from_url(&asset.browser_download_url);
-            
+
             // If no tag specified, use the resolved tag for pinning
             let resolved_tag = if github.tag.is_none() {
                 println!("Pinning GitHub release to tag: {}", release.tag_name);
@@ -448,7 +454,7 @@ pub fn process_fetch_item_for_lock(
             } else {
                 None
             };
-            
+
             (asset.browser_download_url.clone(), filename, resolved_tag)
         };
 
@@ -511,7 +517,7 @@ fn get_latest_github_tag(repo: &str) -> Result<String> {
 pub fn upgrade_recipe(file_path: &str) -> Result<()> {
     // TODO: Implement recipe upgrade logic from main.rs
     println!("Recipe upgrade not yet implemented in refactored version");
-    println!("File path: {}", file_path);
+    println!("File path: {file_path}");
     Ok(())
 }
 
@@ -609,28 +615,61 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
     // Define priority patterns for different OS/arch combinations
     let patterns = match (os, arch) {
         ("windows", "x86_64") => vec![
-            "windows-x86_64", "win64", "windows-amd64", "x86_64-pc-windows", 
-            "windows", "win", "x64", "amd64"
+            "windows-x86_64",
+            "win64",
+            "windows-amd64",
+            "x86_64-pc-windows",
+            "windows",
+            "win",
+            "x64",
+            "amd64",
         ],
         ("windows", "x86") => vec![
-            "windows-i686", "win32", "windows-x86", "i686-pc-windows",
-            "windows", "win", "x86", "i386"
+            "windows-i686",
+            "win32",
+            "windows-x86",
+            "i686-pc-windows",
+            "windows",
+            "win",
+            "x86",
+            "i386",
         ],
         ("linux", "x86_64") => vec![
-            "linux-x86_64", "linux-amd64", "x86_64-unknown-linux", "linux64",
-            "linux", "x64", "amd64"
+            "linux-x86_64",
+            "linux-amd64",
+            "x86_64-unknown-linux",
+            "linux64",
+            "linux",
+            "x64",
+            "amd64",
         ],
         ("linux", "aarch64") => vec![
-            "linux-aarch64", "linux-arm64", "aarch64-unknown-linux",
-            "linux", "arm64"
+            "linux-aarch64",
+            "linux-arm64",
+            "aarch64-unknown-linux",
+            "linux",
+            "arm64",
         ],
         ("macos", "x86_64") => vec![
-            "darwin-x86_64", "macos-x86_64", "x86_64-apple-darwin", "osx-x64",
-            "darwin", "macos", "osx", "mac"
+            "darwin-x86_64",
+            "macos-x86_64",
+            "x86_64-apple-darwin",
+            "osx-x64",
+            "darwin",
+            "macos",
+            "osx",
+            "mac",
         ],
         ("macos", "aarch64") => vec![
-            "darwin-aarch64", "macos-aarch64", "aarch64-apple-darwin", "darwin-arm64",
-            "darwin", "macos", "osx", "mac", "arm64"
+            "darwin-aarch64",
+            "macos-aarch64",
+            "aarch64-apple-darwin",
+            "darwin-arm64",
+            "darwin",
+            "macos",
+            "osx",
+            "mac",
+            "arm64",
         ],
         _ => vec!["universal", "any"],
     };
@@ -641,8 +680,8 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
         .filter(|asset| {
             // Skip non-archive files unless they're executables
             let name_lower = asset.name.to_lowercase();
-            name_lower.ends_with(".zip") 
-                || name_lower.ends_with(".tar.gz") 
+            name_lower.ends_with(".zip")
+                || name_lower.ends_with(".tar.gz")
                 || name_lower.ends_with(".tgz")
                 || (!name_lower.contains(".") && asset.size > 1000) // Likely executable
         })
@@ -658,14 +697,16 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
             }
 
             // Prefer zip files on Windows, tar.gz on others
-            if os == "windows" && name_lower.ends_with(".zip") {
-                score += 10;
-            } else if os != "windows" && (name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tgz")) {
+            if (os == "windows" && name_lower.ends_with(".zip"))
+                || (os != "windows"
+                    && (name_lower.ends_with(".tar.gz") || name_lower.ends_with(".tgz")))
+            {
                 score += 10;
             }
 
             // Prefer smaller files (likely stripped binaries)
-            if asset.size < 50_000_000 { // Less than 50MB
+            if asset.size < 50_000_000 {
+                // Less than 50MB
                 score += 5;
             }
 

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// TOML recipe format: HashMap where key is the section name (becomes tag)
 pub type Recipe = HashMap<String, FetchItem>;

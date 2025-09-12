@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
+use flate2::read::GzDecoder;
+use glob_match::glob_match;
 use std::fs;
 use std::path::Path;
-use flate2::read::GzDecoder;
 use tar::Archive;
-use glob_match::glob_match;
 
 /// Extract TAR.GZ archive
 pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
