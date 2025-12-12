@@ -62,6 +62,7 @@ pub fn install_package(
 ) -> Result<()> {
     use crate::archive::utils as archive_utils;
     use crate::download::github;
+    #[cfg(windows)]
     use crate::install::shim;
 
     // Check if no_shim is used on non-Windows

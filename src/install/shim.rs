@@ -1,4 +1,7 @@
-use anyhow::{Context, Result};
+#[cfg(windows)]
+use anyhow::Context;
+use anyhow::Result;
+#[cfg(windows)]
 use std::fs;
 
 // Embed the scoop shim executable at compile time
@@ -6,12 +9,12 @@ use std::fs;
 pub static SCOOP_SHIM_BYTES: &[u8] = include_bytes!("../../shims/shim_scoop.exe");
 
 /// Create a shim for an executable
-pub fn create_shim(target_executable: &str) -> Result<()> {
+pub fn create_shim(#[cfg_attr(not(windows), allow(unused))] target_executable: &str) -> Result<()> {
     #[cfg(not(windows))]
     {
-        return Err(anyhow::anyhow!(
+        Err(anyhow::anyhow!(
             "Shim creation is only supported on Windows"
-        ));
+        ))
     }
 
     #[cfg(windows)]
