@@ -99,7 +99,7 @@ pub fn install_package(
         };
 
         // Download from GitHub release
-        println!("Downloading from GitHub: {}", repo_path);
+        println!("Downloading from GitHub: {repo_path}");
         github::fetch_github_release(
             &repo_path,
             binary,

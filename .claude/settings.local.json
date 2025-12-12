@@ -14,7 +14,9 @@
       "Bash(gh api:*)",
       "Bash(gh pr list:*)",
       "Bash(cargo fmt:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nApply rustfmt formatting to match CI expectations\n\nFixed formatting issues that were causing CI to fail:\n- Long function call lines wrapped to multiple lines\n- Chained method calls reformatted for readability\n- Multi-line println! statements consolidated where appropriate\n\nBuild passes, all tests pass locally.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nApply rustfmt formatting to match CI expectations\n\nFixed formatting issues that were causing CI to fail:\n- Long function call lines wrapped to multiple lines\n- Chained method calls reformatted for readability\n- Multi-line println! statements consolidated where appropriate\n\nBuild passes, all tests pass locally.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(cargo clippy:*)"
     ]
   }
 }

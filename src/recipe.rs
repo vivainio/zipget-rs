@@ -543,21 +543,21 @@ pub fn upgrade_recipe(file_path: &str) -> Result<()> {
                     // Check if we need to update the tag
                     if let Some(current_tag) = &github.tag {
                         if current_tag != &latest_tag {
-                            println!("  Updating tag: {} -> {}", current_tag, latest_tag);
+                            println!("  Updating tag: {current_tag} -> {latest_tag}");
                             github.tag = Some(latest_tag);
                             any_updated = true;
                         } else {
-                            println!("  Tag is already up to date: {}", current_tag);
+                            println!("  Tag is already up to date: {current_tag}");
                         }
                     } else {
                         // No tag specified, pin to latest
-                        println!("  Pinning to latest tag: {}", latest_tag);
+                        println!("  Pinning to latest tag: {latest_tag}");
                         github.tag = Some(latest_tag);
                         any_updated = true;
                     }
                 }
                 Err(e) => {
-                    println!("  Warning: Failed to fetch latest tag: {}", e);
+                    println!("  Warning: Failed to fetch latest tag: {e}");
                 }
             }
         }
@@ -584,8 +584,8 @@ fn guess_binary_name_from_repo(repo: &str) -> Result<String> {
     // Extract the repo name (last part after /)
     let repo_name = repo
         .split('/')
-        .last()
-        .ok_or_else(|| anyhow::anyhow!("Invalid repository name: {}", repo))?;
+        .next_back()
+        .ok_or_else(|| anyhow::anyhow!("Invalid repository name: {repo}"))?;
 
     // Return the repo name as the guessed binary name
     Ok(repo_name.to_string())
