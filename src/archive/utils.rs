@@ -13,10 +13,10 @@ pub fn should_flatten_directory(extract_to: &Path) -> Result<Option<String>> {
     // Check if there's exactly one directory and no files at the top level
     if entries.len() == 1 {
         let entry = &entries[0];
-        if entry.file_type()?.is_dir() {
-            if let Some(dir_name) = entry.file_name().to_str() {
-                return Ok(Some(dir_name.to_string()));
-            }
+        if entry.file_type()?.is_dir()
+            && let Some(dir_name) = entry.file_name().to_str()
+        {
+            return Ok(Some(dir_name.to_string()));
         }
     }
 

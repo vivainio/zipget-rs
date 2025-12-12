@@ -40,12 +40,12 @@ pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>
                 .with_context(|| format!("Failed to create directory: {}", outpath.display()))?;
         } else {
             // File
-            if let Some(p) = outpath.parent() {
-                if !p.exists() {
-                    fs::create_dir_all(p).with_context(|| {
-                        format!("Failed to create parent directory: {}", p.display())
-                    })?;
-                }
+            if let Some(p) = outpath.parent()
+                && !p.exists()
+            {
+                fs::create_dir_all(p).with_context(|| {
+                    format!("Failed to create parent directory: {}", p.display())
+                })?;
             }
 
             let mut outfile = fs::File::create(&outpath).with_context(|| {

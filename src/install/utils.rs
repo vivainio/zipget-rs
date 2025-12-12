@@ -9,8 +9,13 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 
 /// Check if a directory is in PATH
 pub fn is_directory_in_path(directory: &Path) -> bool {
-    // TODO: Implement PATH checking logic from main.rs
-    println!("PATH checking not yet implemented in refactored version");
-    println!("Directory: {}", directory.display());
+    if let Ok(path_var) = std::env::var("PATH") {
+        let paths = std::env::split_paths(&path_var);
+        for path in paths {
+            if path == directory {
+                return true;
+            }
+        }
+    }
     false
 }
