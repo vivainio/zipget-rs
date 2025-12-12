@@ -43,10 +43,23 @@ pub fn run_package(
 
         // Download from GitHub release
         println!("Downloading from GitHub: {}", repo_path);
-        github::fetch_github_release(&repo_path, binary, None, tag, Some(temp_path.to_str().unwrap()), files_pattern)?;
+        github::fetch_github_release(
+            &repo_path,
+            binary,
+            None,
+            tag,
+            Some(temp_path.to_str().unwrap()),
+            files_pattern,
+        )?;
     } else {
         // Direct URL download
-        fetch_direct_url(source, None, Some(temp_path.to_str().unwrap()), files_pattern, profile)?;
+        fetch_direct_url(
+            source,
+            None,
+            Some(temp_path.to_str().unwrap()),
+            files_pattern,
+            profile,
+        )?;
     }
 
     // Flatten directory if needed
@@ -58,7 +71,9 @@ pub fn run_package(
     let executables = find_executables(&temp_path).context("Failed to find executables")?;
 
     if executables.is_empty() {
-        return Err(anyhow::anyhow!("No executables found in downloaded package"));
+        return Err(anyhow::anyhow!(
+            "No executables found in downloaded package"
+        ));
     }
 
     // Select which executable to run

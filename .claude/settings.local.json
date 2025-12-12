@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nRestore broken CLI commands with full implementations\n\nImplemented all stub functions from the post-refactoring code:\n\n- is_directory_in_path(): Check if directory is in system PATH\n- is_executable() and find_executables(): Platform-aware executable detection\n- run_package(): Download, extract, and execute packages from GitHub/URLs\n- install_package(): Full installation with Windows shim or Unix bin support\n- create_shim(): Generate Windows shim executables for installed programs\n- upgrade_recipe(): Update recipe files with latest GitHub releases\n- Fixed CLI parameter passing for run and install commands\n\nAll functions now properly handle:\n- GitHub releases and direct URL downloads\n- Archive extraction with automatic directory flattening\n- Platform-specific installation (Windows shims vs Unix bin)\n- Proper cleanup of temporary directories\n- Error handling with context\n\nBuild passes without warnings, all tests pass.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(python3:*)",
+      "Bash(/c/Users/villevai/AppData/Local/Programs/Python/Python312/python test/test-suite.py)",
+      "Bash(gh workflow:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh api:*)",
+      "Bash(gh pr list:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nApply rustfmt formatting to match CI expectations\n\nFixed formatting issues that were causing CI to fail:\n- Long function call lines wrapped to multiple lines\n- Chained method calls reformatted for readability\n- Multi-line println! statements consolidated where appropriate\n\nBuild passes, all tests pass locally.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>\nEOF\n)\")"
+    ]
+  }
+}

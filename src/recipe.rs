@@ -543,10 +543,7 @@ pub fn upgrade_recipe(file_path: &str) -> Result<()> {
                     // Check if we need to update the tag
                     if let Some(current_tag) = &github.tag {
                         if current_tag != &latest_tag {
-                            println!(
-                                "  Updating tag: {} -> {}",
-                                current_tag, latest_tag
-                            );
+                            println!("  Updating tag: {} -> {}", current_tag, latest_tag);
                             github.tag = Some(latest_tag);
                             any_updated = true;
                         } else {

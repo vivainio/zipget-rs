@@ -44,23 +44,20 @@ pub fn create_shim(target_executable: &str) -> Result<()> {
             .join(".local")
             .join("bin");
 
-        fs::create_dir_all(&local_bin)
-            .context("Failed to create ~/.local/bin directory")?;
+        fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
 
         // Create .shim config file
         let shim_path = local_bin.join(format!("{}.shim", exe_name));
         let shim_config = format!("path = {}\nargs =", abs_target.display());
 
-        fs::write(&shim_path, &shim_config)
-            .context("Failed to write .shim config file")?;
+        fs::write(&shim_path, &shim_config).context("Failed to write .shim config file")?;
 
         println!("Created shim config: {}", shim_path.display());
 
         // Copy SCOOP_SHIM_BYTES to <name>.exe
         let exe_path = local_bin.join(format!("{}.exe", exe_name));
 
-        fs::write(&exe_path, SCOOP_SHIM_BYTES)
-            .context("Failed to write shim executable")?;
+        fs::write(&exe_path, SCOOP_SHIM_BYTES).context("Failed to write shim executable")?;
 
         println!("Created shim executable: {}", exe_path.display());
         println!("Shim created successfully for: {}", exe_name);

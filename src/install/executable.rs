@@ -100,10 +100,23 @@ pub fn install_package(
 
         // Download from GitHub release
         println!("Downloading from GitHub: {}", repo_path);
-        github::fetch_github_release(&repo_path, binary, None, tag, Some(temp_path.to_str().unwrap()), files_pattern)?;
+        github::fetch_github_release(
+            &repo_path,
+            binary,
+            None,
+            tag,
+            Some(temp_path.to_str().unwrap()),
+            files_pattern,
+        )?;
     } else {
         // Direct URL download
-        crate::runner::fetch_direct_url(source, None, Some(temp_path.to_str().unwrap()), files_pattern, profile)?;
+        crate::runner::fetch_direct_url(
+            source,
+            None,
+            Some(temp_path.to_str().unwrap()),
+            files_pattern,
+            profile,
+        )?;
     }
 
     // Flatten directory if needed
@@ -147,8 +160,7 @@ pub fn install_package(
                 .join(".local")
                 .join("bin");
 
-            fs::create_dir_all(&local_bin)
-                .context("Failed to create ~/.local/bin directory")?;
+            fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
 
             let filename = exe_to_install
                 .file_name()
@@ -165,7 +177,11 @@ pub fn install_package(
                 .canonicalize()
                 .context("Failed to get absolute path of executable")?;
 
-            shim::create_shim(exe_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?)?;
+            shim::create_shim(
+                exe_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+            )?;
 
             println!("Shim created for: {}", exe_to_install.display());
         }
@@ -181,8 +197,7 @@ pub fn install_package(
             .join(".local")
             .join("bin");
 
-        fs::create_dir_all(&local_bin)
-            .context("Failed to create ~/.local/bin directory")?;
+        fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
 
         let filename = exe_to_install
             .file_name()
