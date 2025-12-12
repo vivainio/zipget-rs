@@ -583,8 +583,8 @@ pub fn upgrade_recipe(file_path: &str) -> Result<()> {
 fn guess_binary_name_from_repo(repo: &str) -> Result<String> {
     // Extract the repo name (last part after /)
     let repo_name = repo
-        .split('/')
-        .next_back()
+        .rsplit('/')
+        .next()
         .ok_or_else(|| anyhow::anyhow!("Invalid repository name: {repo}"))?;
 
     // Return the repo name as the guessed binary name
