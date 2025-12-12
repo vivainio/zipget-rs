@@ -12,10 +12,10 @@ pub fn is_executable(path: &Path) -> Result<bool> {
 
     #[cfg(windows)]
     {
-        if let Some(ext) = path.extension() {
-            if ext.to_string_lossy().to_lowercase() == "exe" {
-                return Ok(true);
-            }
+        if let Some(ext) = path.extension()
+            && ext.to_string_lossy().to_lowercase() == "exe"
+        {
+            return Ok(true);
         }
         Ok(false)
     }

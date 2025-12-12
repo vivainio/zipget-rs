@@ -151,23 +151,22 @@ fn process_recipe_for_lock(
                     }
 
                     // If we resolved a tag for a GitHub release without explicit tag, pin it
-                    if let Some(resolved_tag) = lock_result.resolved_tag {
-                        if let Some(github) = &mut item.github {
-                            if github.tag.is_none() {
-                                println!("  Pinning GitHub release to tag: {resolved_tag}");
-                                github.tag = Some(resolved_tag);
-                                any_updated = true;
-                            }
-                        }
+                    if let Some(resolved_tag) = lock_result.resolved_tag
+                        && let Some(github) = &mut item.github
+                        && github.tag.is_none()
+                    {
+                        println!("  Pinning GitHub release to tag: {resolved_tag}");
+                        github.tag = Some(resolved_tag);
+                        any_updated = true;
                     }
 
                     // Store direct download URL for GitHub assets
-                    if let Some(download_url) = lock_result.download_url {
-                        if lock_info.download_url.as_ref() != Some(&download_url) {
-                            println!("  Storing direct download URL");
-                            lock_info.download_url = Some(download_url);
-                            any_updated = true;
-                        }
+                    if let Some(download_url) = lock_result.download_url
+                        && lock_info.download_url.as_ref() != Some(&download_url)
+                    {
+                        println!("  Storing direct download URL");
+                        lock_info.download_url = Some(download_url);
+                        any_updated = true;
                     }
                 }
             }
@@ -787,10 +786,10 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
     // Sort by score (highest first)
     scored_assets.sort_by(|a, b| b.0.cmp(&a.0));
 
-    if let Some((score, asset)) = scored_assets.first() {
-        if *score > 0 {
-            return Some(asset.name.clone());
-        }
+    if let Some((score, asset)) = scored_assets.first()
+        && *score > 0
+    {
+        return Some(asset.name.clone());
     }
 
     None

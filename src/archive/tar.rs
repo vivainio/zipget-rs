@@ -44,12 +44,12 @@ pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&s
         let outpath = Path::new(extract_to).join(&path);
 
         // Create parent directories if they don't exist
-        if let Some(parent) = outpath.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent).with_context(|| {
-                    format!("Failed to create parent directory: {}", parent.display())
-                })?;
-            }
+        if let Some(parent) = outpath.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create parent directory: {}", parent.display())
+            })?;
         }
 
         // Extract the entry
