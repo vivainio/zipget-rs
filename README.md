@@ -563,19 +563,6 @@ zipget run --help
 zipget install --help
 ```
 
-## Dependencies
-
-- `ureq`: HTTP client for downloading files and GitHub API
-- `serde`: Serialization/deserialization framework
-- `toml`: TOML parsing and serialization
-- `zip`: ZIP file extraction
-- `tar`: TAR archive extraction
-- `flate2`: Gzip compression/decompression for tar.gz files
-- `md5`: URL hashing for cache keys
-- `anyhow`: Error handling
-- `clap`: CLI argument parsing
-- `glob-match`: Pattern matching for selective file extraction
-
 ## License
 
 MIT License - same as the original zipget project. 
