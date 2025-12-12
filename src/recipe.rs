@@ -515,10 +515,83 @@ fn get_latest_github_tag(repo: &str) -> Result<String> {
 
 /// Upgrade recipe to latest GitHub releases
 pub fn upgrade_recipe(file_path: &str) -> Result<()> {
-    // TODO: Implement recipe upgrade logic from main.rs
-    println!("Recipe upgrade not yet implemented in refactored version");
-    println!("File path: {file_path}");
+    // Read and parse recipe file
+    let recipe_content = fs::read_to_string(file_path)
+        .with_context(|| format!("Failed to read recipe file: {file_path}"))?;
+
+    let mut recipe: Recipe =
+        toml::from_str(&recipe_content).with_context(|| "Failed to parse recipe TOML")?;
+
+    let mut any_updated = false;
+
+    // Iterate through each item and upgrade GitHub references
+    for (section_name, item) in recipe.iter_mut() {
+        if let Some(github) = &mut item.github {
+            println!("Checking {}: {}", section_name, github.repo);
+
+            // If no asset specified, guess the binary name
+            if github.asset.is_none() {
+                let guessed_name = guess_binary_name_from_repo(&github.repo)?;
+                println!("  Guessed binary name: {guessed_name}");
+                github.asset = Some(guessed_name);
+                any_updated = true;
+            }
+
+            // Fetch latest tag from GitHub API
+            match get_latest_github_tag(&github.repo) {
+                Ok(latest_tag) => {
+                    // Check if we need to update the tag
+                    if let Some(current_tag) = &github.tag {
+                        if current_tag != &latest_tag {
+                            println!(
+                                "  Updating tag: {} -> {}",
+                                current_tag, latest_tag
+                            );
+                            github.tag = Some(latest_tag);
+                            any_updated = true;
+                        } else {
+                            println!("  Tag is already up to date: {}", current_tag);
+                        }
+                    } else {
+                        // No tag specified, pin to latest
+                        println!("  Pinning to latest tag: {}", latest_tag);
+                        github.tag = Some(latest_tag);
+                        any_updated = true;
+                    }
+                }
+                Err(e) => {
+                    println!("  Warning: Failed to fetch latest tag: {}", e);
+                }
+            }
+        }
+    }
+
+    if any_updated {
+        // Write updated recipe back to file
+        let updated_content = serialize_recipe_with_inline_locks(&recipe)
+            .with_context(|| "Failed to serialize updated recipe")?;
+
+        fs::write(file_path, updated_content)
+            .with_context(|| format!("Failed to write updated recipe to {file_path}"))?;
+
+        println!("Recipe upgraded successfully!");
+    } else {
+        println!("All GitHub references are already up to date.");
+    }
+
     Ok(())
+}
+
+/// Guess binary name from repository name
+fn guess_binary_name_from_repo(repo: &str) -> Result<String> {
+    // Extract the repo name (last part after /)
+    let repo_name = repo
+        .split('/')
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("Invalid repository name: {}", repo))?;
+
+    // Return the repo name as the guessed binary name
+    Ok(repo_name.to_string())
 }
 
 /// Get GitHub release URL for a specific asset

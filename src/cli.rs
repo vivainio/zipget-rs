@@ -70,8 +70,15 @@ pub fn run() -> Result<()> {
             println!(
                 "Run command: source={source}, binary={binary:?}, tag={tag:?}, files={files:?}, profile={profile:?}, executable={executable:?}, args={args:?}"
             );
-            // TODO: Implement run
-            crate::runner::run_package()?;
+            crate::runner::run_package(
+                &source,
+                binary.as_deref(),
+                tag.as_deref(),
+                files.as_deref(),
+                profile.as_deref(),
+                executable.as_deref(),
+                &args,
+            )?;
         }
         Commands::Install {
             source,
@@ -85,8 +92,15 @@ pub fn run() -> Result<()> {
             println!(
                 "Install command: source={source}, binary={binary:?}, tag={tag:?}, files={files:?}, profile={profile:?}, executable={executable:?}, no_shim={no_shim}"
             );
-            // TODO: Implement install
-            crate::install::executable::install_package()?;
+            crate::install::executable::install_package(
+                &source,
+                binary.as_deref(),
+                tag.as_deref(),
+                files.as_deref(),
+                profile.as_deref(),
+                executable.as_deref(),
+                no_shim,
+            )?;
         }
         Commands::Shim { target_executable } => {
             println!("Shim command: target_executable={target_executable}");
