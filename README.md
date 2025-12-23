@@ -507,13 +507,17 @@ zipget recipe enterprise-deploy.toml staging-app
 
 ### Selective File Extraction
 
-Use the `files` field to extract only specific files from archives using glob patterns:
+Use the `files` field to extract only specific files from archives using glob patterns.
+
+**Important:** When `files` is specified, the directory structure is flattened - files are extracted directly to `unzip_to` without preserving subdirectories. This makes it easy to extract binaries directly to a bin directory:
 
 ```toml
-[tools]
-url = "https://example.com/tools.zip"
+[ripgrep]
+# Archive contains: ripgrep-15.1.0-x86_64-unknown-linux-musl/rg
+# Result: ./tools/rg (flattened, not ./tools/ripgrep-15.1.0-.../rg)
+github = { repo = "BurntSushi/ripgrep", asset = "*x86_64-unknown-linux-musl*" }
 unzip_to = "./tools"
-files = "*.exe"
+files = "*/rg"
 
 [bat-windows]
 github = { repo = "sharkdp/bat", asset = "windows" }
@@ -523,8 +527,8 @@ files = "{bat.exe,LICENSE*}"
 
 Common glob patterns:
 - `*.exe` - Extract only .exe files
-- `*.{exe,dll}` - Extract .exe and .dll files  
-- `bin/*` - Extract files in the bin/ directory
+- `*.{exe,dll}` - Extract .exe and .dll files
+- `*/rg` - Extract `rg` binary from any subdirectory (flattened)
 - `{LICENSE,README*}` - Extract LICENSE and README files
 
 ### Complete Recipe Example

@@ -22,7 +22,7 @@ pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>
             .with_context(|| format!("Failed to access zip entry {i}"))?;
 
         // Check if file matches the glob pattern (if specified)
-        if let Some(pattern) = file_pattern {
+        let flatten = if let Some(pattern) = file_pattern {
             let filename = Path::new(file.name())
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -30,15 +30,31 @@ pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>
             if !glob_match(pattern, file.name()) && !glob_match(pattern, filename) {
                 continue; // Skip files that don't match the pattern (checking both full path and filename)
             }
-        }
+            true // Flatten when file pattern is specified
+        } else {
+            false
+        };
 
-        let outpath = Path::new(extract_to).join(file.mangled_name());
-
+        // Skip directories when flattening
         if file.name().ends_with('/') {
-            // Directory
+            if flatten {
+                continue; // Skip directory entries when flattening
+            }
+            // Directory (only when not flattening)
+            let outpath = Path::new(extract_to).join(file.mangled_name());
             fs::create_dir_all(&outpath)
                 .with_context(|| format!("Failed to create directory: {}", outpath.display()))?;
         } else {
+            // When file pattern is specified, flatten to just the filename
+            let outpath = if flatten {
+                if let Some(filename) = Path::new(file.name()).file_name() {
+                    Path::new(extract_to).join(filename)
+                } else {
+                    continue; // Skip entries without a filename
+                }
+            } else {
+                Path::new(extract_to).join(file.mangled_name())
+            };
             // File
             if let Some(p) = outpath.parent()
                 && !p.exists()
@@ -54,18 +70,18 @@ pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>
 
             std::io::copy(&mut file, &mut outfile)
                 .with_context(|| format!("Failed to extract file: {}", outpath.display()))?;
-        }
 
-        // Set file permissions on Unix-like systems
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Some(mode) = file.unix_mode() {
-                fs::set_permissions(&outpath, fs::Permissions::from_mode(mode))?;
+            // Set file permissions on Unix-like systems
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Some(mode) = file.unix_mode() {
+                    fs::set_permissions(&outpath, fs::Permissions::from_mode(mode))?;
+                }
             }
-        }
 
-        extracted_count += 1;
+            extracted_count += 1;
+        }
     }
 
     if let Some(pattern) = file_pattern {

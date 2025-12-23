@@ -31,7 +31,7 @@ pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&s
             .ok_or_else(|| anyhow::anyhow!("Invalid UTF-8 in path"))?;
 
         // Check if file matches the glob pattern (if specified)
-        if let Some(pattern) = file_pattern {
+        let flatten = if let Some(pattern) = file_pattern {
             let filename = path
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -39,9 +39,21 @@ pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&s
             if !glob_match(pattern, path_str) && !glob_match(pattern, filename) {
                 continue; // Skip files that don't match the pattern (checking both full path and filename)
             }
-        }
+            true // Flatten when file pattern is specified
+        } else {
+            false
+        };
 
-        let outpath = Path::new(extract_to).join(&path);
+        // When file pattern is specified, flatten to just the filename
+        let outpath = if flatten {
+            if let Some(filename) = path.file_name() {
+                Path::new(extract_to).join(filename)
+            } else {
+                continue; // Skip entries without a filename (e.g., directories)
+            }
+        } else {
+            Path::new(extract_to).join(&path)
+        };
 
         // Create parent directories if they don't exist
         if let Some(parent) = outpath.parent()
