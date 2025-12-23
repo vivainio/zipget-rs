@@ -118,10 +118,7 @@ fn extract_archive_with_options(
 ) -> Result<()> {
     use crate::archive::{tar, zip};
 
-    let filename = file_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let filename = file_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
         let _ = zip::extract_zip(file_path, extract_to, files_pattern)?;

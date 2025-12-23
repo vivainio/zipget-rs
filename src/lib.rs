@@ -11,6 +11,7 @@ pub mod models;
 pub mod recipe;
 pub mod runner;
 pub mod utils;
+pub mod vars;
 
 // Re-export commonly used types
 pub use anyhow::{Context, Result as AnyhowResult};

@@ -2,8 +2,16 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// TOML recipe format: HashMap where key is the section name (becomes tag)
-pub type Recipe = HashMap<String, FetchItem>;
+/// TOML recipe format with optional vars section
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct Recipe {
+    /// Variable definitions for substitution
+    #[serde(default)]
+    pub vars: HashMap<String, String>,
+    /// Fetch items (all other sections)
+    #[serde(flatten)]
+    pub items: HashMap<String, FetchItem>,
+}
 
 /// Command line arguments
 #[derive(Parser)]
@@ -31,6 +39,9 @@ pub enum Commands {
         /// Write SHA-256 hashes for each file to the recipe (creates lock file)
         #[arg(long)]
         lock: bool,
+        /// Set variable overrides (format: key=value), can be specified multiple times
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        var_overrides: Vec<String>,
     },
     /// Fetch the latest release binary from a GitHub repository
     Github {

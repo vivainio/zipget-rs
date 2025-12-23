@@ -2,8 +2,11 @@ use crate::archive::{tar, zip};
 use crate::cache::get_cache_dir;
 use crate::crypto::{compute_sha256, compute_sha256_from_bytes, verify_sha256};
 use crate::download::http;
-use crate::models::{FetchItem, GitHubAsset, GitHubRelease, LockInfo, LockResult, Recipe};
+use crate::models::{
+    FetchItem, GitHubAsset, GitHubFetch, GitHubRelease, LockInfo, LockResult, Recipe,
+};
 use crate::utils::get_filename_from_url;
+use crate::vars::VarContext;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -15,6 +18,7 @@ pub fn process_recipe(
     upgrade: bool,
     profile: Option<&str>,
     lock: bool,
+    var_overrides: &[String],
 ) -> Result<()> {
     if upgrade {
         return upgrade_recipe(file_path);
@@ -26,25 +30,51 @@ pub fn process_recipe(
     let recipe: Recipe =
         toml::from_str(&recipe_content).with_context(|| "Failed to parse recipe TOML")?;
 
+    // Create variable context with recipe vars and CLI overrides
+    let recipe_path = Path::new(file_path);
+    let var_ctx = VarContext::new(&recipe.vars, var_overrides, Some(recipe_path))
+        .with_context(|| "Failed to create variable context")?;
+
+    // Show active variables if any custom vars are defined
+    if !recipe.vars.is_empty() || !var_overrides.is_empty() {
+        println!("Active variables:");
+        for (key, value) in var_ctx.vars() {
+            // Only show non-builtin vars or overridden ones
+            if recipe.vars.contains_key(key)
+                || var_overrides
+                    .iter()
+                    .any(|o| o.starts_with(&format!("{key}=")))
+            {
+                println!("  {key} = {value}");
+            }
+        }
+    }
+
     if lock {
         // Lock mode - process sequentially and update file
-        process_recipe_for_lock(file_path, &recipe, tag, profile)
+        process_recipe_for_lock(file_path, &recipe, tag, profile, &var_ctx)
     } else {
         // Normal mode - process items
-        process_recipe_items(&recipe, tag, profile)
+        process_recipe_items(&recipe, tag, profile, &var_ctx)
     }
 }
 
 /// Process recipe items in normal mode
-fn process_recipe_items(recipe: &Recipe, tag: Option<&str>, profile: Option<&str>) -> Result<()> {
+fn process_recipe_items(
+    recipe: &Recipe,
+    tag: Option<&str>,
+    profile: Option<&str>,
+    var_ctx: &VarContext,
+) -> Result<()> {
     // Filter items by tag if specified
     let items_to_process: Vec<(&String, &FetchItem)> = if let Some(filter_tag) = tag {
         recipe
+            .items
             .iter()
             .filter(|(k, _)| k.contains(filter_tag))
             .collect()
     } else {
-        recipe.iter().collect()
+        recipe.items.iter().collect()
     };
 
     if items_to_process.is_empty() {
@@ -74,7 +104,10 @@ fn process_recipe_items(recipe: &Recipe, tag: Option<&str>, profile: Option<&str
 
     for (section_name, fetch_item) in items_to_process {
         println!("Processing {section_name}...");
-        if let Err(e) = process_fetch_item(fetch_item, profile) {
+        // Apply variable substitution to the fetch item
+        let substituted_item = substitute_fetch_item(fetch_item, var_ctx)
+            .with_context(|| format!("Failed to substitute variables in {section_name}"))?;
+        if let Err(e) = process_fetch_item(&substituted_item, profile) {
             println!("Error processing {section_name}: {e}");
             errors.push(format!("{section_name}: {e}"));
         }
@@ -90,18 +123,73 @@ fn process_recipe_items(recipe: &Recipe, tag: Option<&str>, profile: Option<&str
     Ok(())
 }
 
+/// Apply variable substitution to a FetchItem
+fn substitute_fetch_item(item: &FetchItem, var_ctx: &VarContext) -> Result<FetchItem> {
+    Ok(FetchItem {
+        url: item
+            .url
+            .as_ref()
+            .map(|s| var_ctx.substitute(s))
+            .transpose()?,
+        github: item
+            .github
+            .as_ref()
+            .map(|g| substitute_github_fetch(g, var_ctx))
+            .transpose()?,
+        unzip_to: item
+            .unzip_to
+            .as_ref()
+            .map(|s| var_ctx.substitute(s))
+            .transpose()?,
+        save_as: item
+            .save_as
+            .as_ref()
+            .map(|s| var_ctx.substitute(s))
+            .transpose()?,
+        files: item
+            .files
+            .as_ref()
+            .map(|s| var_ctx.substitute(s))
+            .transpose()?,
+        profile: item.profile.clone(),
+        install_exes: item.install_exes.clone(),
+        no_shim: item.no_shim,
+        lock: item.lock.clone(),
+        executable: item.executable,
+    })
+}
+
+/// Apply variable substitution to GitHubFetch
+fn substitute_github_fetch(github: &GitHubFetch, var_ctx: &VarContext) -> Result<GitHubFetch> {
+    Ok(GitHubFetch {
+        repo: var_ctx.substitute(&github.repo)?,
+        asset: github
+            .asset
+            .as_ref()
+            .map(|s| var_ctx.substitute(s))
+            .transpose()?,
+        tag: github
+            .tag
+            .as_ref()
+            .map(|s| var_ctx.substitute(s))
+            .transpose()?,
+    })
+}
+
 /// Process recipe for lock file generation
 fn process_recipe_for_lock(
     file_path: &str,
     recipe: &Recipe,
     tag: Option<&str>,
     profile: Option<&str>,
+    var_ctx: &VarContext,
 ) -> Result<()> {
     let mut updated_recipe = recipe.clone();
     let mut any_updated = false;
 
     // Collect section names and items to process
     let sections_to_process: Vec<(String, FetchItem)> = recipe
+        .items
         .iter()
         .filter(|(section_name, _)| {
             if let Some(filter_tag) = tag {
@@ -129,10 +217,13 @@ fn process_recipe_for_lock(
 
     for (section_name, fetch_item) in sections_to_process {
         println!("Processing {section_name} for lock file...");
-        match process_fetch_item_for_lock(&fetch_item, profile) {
+        // Apply variable substitution before processing
+        let substituted_item = substitute_fetch_item(&fetch_item, var_ctx)
+            .with_context(|| format!("Failed to substitute variables in {section_name}"))?;
+        match process_fetch_item_for_lock(&substituted_item, profile) {
             Ok(lock_result) => {
                 // Update the recipe with computed SHA and resolved tag
-                if let Some(item) = updated_recipe.get_mut(&section_name) {
+                if let Some(item) = updated_recipe.items.get_mut(&section_name) {
                     // Initialize lock info if not present
                     if item.lock.is_none() {
                         item.lock = Some(LockInfo {
@@ -196,7 +287,16 @@ fn process_recipe_for_lock(
 fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
     let mut output = String::new();
 
-    for (section_name, fetch_item) in recipe {
+    // Serialize vars section first if present
+    if !recipe.vars.is_empty() {
+        output.push_str("[vars]\n");
+        for (key, value) in &recipe.vars {
+            output.push_str(&format!("{key} = \"{value}\"\n"));
+        }
+        output.push('\n');
+    }
+
+    for (section_name, fetch_item) in &recipe.items {
         output.push_str(&format!("[{section_name}]\n"));
 
         // Serialize basic fields
@@ -566,7 +666,7 @@ pub fn upgrade_recipe(file_path: &str) -> Result<()> {
     let mut any_updated = false;
 
     // Iterate through each item and upgrade GitHub references
-    for (section_name, item) in recipe.iter_mut() {
+    for (section_name, item) in recipe.items.iter_mut() {
         if let Some(github) = &mut item.github {
             println!("Checking {}: {}", section_name, github.repo);
 
