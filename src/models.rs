@@ -42,6 +42,9 @@ pub enum Commands {
         /// Set variable overrides (format: key=value), can be specified multiple times
         #[arg(long = "set", value_name = "KEY=VALUE")]
         var_overrides: Vec<String>,
+        /// Show how variables would be expanded without downloading
+        #[arg(long)]
+        dry: bool,
     },
     /// Fetch the latest release binary from a GitHub repository
     Github {

@@ -19,6 +19,7 @@ pub fn process_recipe(
     profile: Option<&str>,
     lock: bool,
     var_overrides: &[String],
+    dry: bool,
 ) -> Result<()> {
     if upgrade {
         return upgrade_recipe(file_path);
@@ -50,6 +51,11 @@ pub fn process_recipe(
         }
     }
 
+    if dry {
+        // Dry run mode - show expanded values without downloading
+        return dry_run_recipe(&recipe, tag, &var_ctx);
+    }
+
     if lock {
         // Lock mode - process sequentially and update file
         process_recipe_for_lock(file_path, &recipe, tag, profile, &var_ctx)
@@ -57,6 +63,68 @@ pub fn process_recipe(
         // Normal mode - process items
         process_recipe_items(&recipe, tag, profile, &var_ctx)
     }
+}
+
+/// Dry run mode - show how variables would be expanded
+fn dry_run_recipe(recipe: &Recipe, tag: Option<&str>, var_ctx: &VarContext) -> Result<()> {
+    // Filter items by tag if specified
+    let items_to_process: Vec<(&String, &FetchItem)> = if let Some(filter_tag) = tag {
+        recipe
+            .items
+            .iter()
+            .filter(|(k, _)| k.contains(filter_tag))
+            .collect()
+    } else {
+        recipe.items.iter().collect()
+    };
+
+    if items_to_process.is_empty() {
+        if let Some(filter_tag) = tag {
+            println!("No items found with tag: {filter_tag}");
+        } else {
+            println!("No items to process in recipe");
+        }
+        return Ok(());
+    }
+
+    println!("\nDry run - showing expanded values:\n");
+
+    for (section_name, fetch_item) in items_to_process {
+        println!("[{section_name}]");
+
+        // Apply variable substitution and show results
+        let substituted = substitute_fetch_item(fetch_item, var_ctx)
+            .with_context(|| format!("Failed to substitute variables in {section_name}"))?;
+
+        if let Some(url) = &substituted.url {
+            println!("  url = \"{url}\"");
+        }
+        if let Some(github) = &substituted.github {
+            print!("  github = {{ repo = \"{}\"", github.repo);
+            if let Some(asset) = &github.asset {
+                print!(", asset = \"{asset}\"");
+            }
+            if let Some(tag) = &github.tag {
+                print!(", tag = \"{tag}\"");
+            }
+            println!(" }}");
+        }
+        if let Some(save_as) = &substituted.save_as {
+            println!("  save_as = \"{save_as}\"");
+        }
+        if let Some(unzip_to) = &substituted.unzip_to {
+            println!("  unzip_to = \"{unzip_to}\"");
+        }
+        if let Some(files) = &substituted.files {
+            println!("  files = \"{files}\"");
+        }
+        if substituted.executable == Some(true) {
+            println!("  executable = true");
+        }
+        println!();
+    }
+
+    Ok(())
 }
 
 /// Process recipe items in normal mode

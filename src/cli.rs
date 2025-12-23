@@ -14,6 +14,7 @@ pub fn run() -> Result<()> {
             profile,
             lock,
             var_overrides,
+            dry,
         } => {
             crate::recipe::process_recipe(
                 &file,
@@ -22,6 +23,7 @@ pub fn run() -> Result<()> {
                 profile.as_deref(),
                 lock,
                 &var_overrides,
+                dry,
             )?;
         }
         Commands::Github {

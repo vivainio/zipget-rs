@@ -65,22 +65,6 @@ impl VarContext {
     /// - ${env.VAR} - substitute with environment variable
     /// - ~/path - expands to home directory
     pub fn substitute(&self, input: &str) -> Result<String> {
-        // Handle tilde expansion at start of string
-        let input = if input.starts_with("~/") {
-            if let Some(home) = self.vars.get("home") {
-                format!("{}{}", home, &input[1..])
-            } else {
-                input.to_string()
-            }
-        } else if input == "~" {
-            self.vars
-                .get("home")
-                .cloned()
-                .unwrap_or_else(|| "~".to_string())
-        } else {
-            input.to_string()
-        };
-
         let mut result = String::with_capacity(input.len());
         let mut chars = input.chars().peekable();
 
@@ -118,7 +102,24 @@ impl VarContext {
             }
         }
 
+        // Apply tilde expansion to final result
+        let result = self.expand_tilde(&result);
+
         Ok(result)
+    }
+
+    /// Expand tilde at start of string to home directory
+    fn expand_tilde(&self, input: &str) -> String {
+        if input.starts_with("~/") {
+            if let Some(home) = self.vars.get("home") {
+                return format!("{}{}", home, &input[1..]);
+            }
+        } else if input == "~" {
+            if let Some(home) = self.vars.get("home") {
+                return home.clone();
+            }
+        }
+        input.to_string()
     }
 
     /// Resolve a variable name to its value
