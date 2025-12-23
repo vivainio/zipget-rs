@@ -228,7 +228,7 @@ unzip_to = "./downloads"
 ### Recipe Schema
 
 Each section represents a download item and can have:
-- **url**: Direct URL to download from (supports HTTP/HTTPS and S3 URLs)
+- **url**: Direct URL to download from (supports HTTP/HTTPS, S3 URLs, and local file paths starting with `/` or `.`)
 - **github**: GitHub release specification (inline table format)
   - **repo**: Repository in "owner/repo" format
   - **asset**: Name pattern to match in release assets (optional, auto-detected if not specified)
@@ -237,6 +237,7 @@ Each section represents a download item and can have:
 - **save_as**: Path where the downloaded file should be saved
 - **files**: Glob pattern for files to extract from archives (extracts all if not specified)
 - **profile**: AWS profile to use for S3 downloads (overrides global --profile)
+- **executable**: Set to `true` to add executable permission to extracted files (Unix only)
 
 ## GitHub Integration
 
@@ -530,6 +531,20 @@ Common glob patterns:
 - `*.{exe,dll}` - Extract .exe and .dll files
 - `*/rg` - Extract `rg` binary from any subdirectory (flattened)
 - `{LICENSE,README*}` - Extract LICENSE and README files
+
+### Setting Executable Permissions (Unix)
+
+Use the `executable` field to automatically set executable permissions on extracted files:
+
+```toml
+[my-scripts]
+url = "/path/to/scripts.tar.gz"
+unzip_to = "./bin"
+files = "*.sh"
+executable = true
+```
+
+This sets the executable bit on all extracted files. Local file paths (starting with `/` or `.`) are also supported in the `url` field.
 
 ### Complete Recipe Example
 

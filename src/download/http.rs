@@ -3,13 +3,35 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-/// Download file from HTTP/HTTPS URL or S3
+/// Download file from HTTP/HTTPS URL, S3, or copy from local path
 pub fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {
-    if s3::is_s3_url(url) {
+    if url.starts_with('/') || url.starts_with('.') {
+        copy_local_file(url, path)
+    } else if s3::is_s3_url(url) {
         s3::download_s3_file(url, path, profile)
     } else {
         download_http_file(url, path)
     }
+}
+
+/// Copy a local file to the destination path
+fn copy_local_file(source: &str, dest: &Path) -> Result<()> {
+    let source_path = Path::new(source);
+    if !source_path.exists() {
+        return Err(anyhow::anyhow!("Local file not found: {}", source));
+    }
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+    }
+
+    let file_size = fs::metadata(source_path)?.len();
+    fs::copy(source_path, dest)
+        .with_context(|| format!("Failed to copy {} to {}", source, dest.display()))?;
+
+    println!("Copied: {} ({} bytes)", dest.display(), file_size);
+    Ok(())
 }
 
 /// Download file via HTTP/HTTPS

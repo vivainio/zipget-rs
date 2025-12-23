@@ -1,11 +1,15 @@
 use anyhow::{Context, Result};
 use glob_match::glob_match;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
-/// Extract ZIP archive
-pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+/// Extract ZIP archive, returns list of extracted file paths
+pub fn extract_zip(
+    zip_path: &Path,
+    extract_to: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<PathBuf>> {
     let file = fs::File::open(zip_path)
         .with_context(|| format!("Failed to open zip file: {}", zip_path.display()))?;
 
@@ -14,7 +18,7 @@ pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>
     fs::create_dir_all(extract_to)
         .with_context(|| format!("Failed to create extraction directory: {extract_to}"))?;
 
-    let mut extracted_count = 0;
+    let mut extracted_files = Vec::new();
 
     for i in 0..archive.len() {
         let mut file = archive
@@ -80,14 +84,17 @@ pub fn extract_zip(zip_path: &Path, extract_to: &str, file_pattern: Option<&str>
                 }
             }
 
-            extracted_count += 1;
+            extracted_files.push(outpath);
         }
     }
 
     if let Some(pattern) = file_pattern {
-        println!("Extracted {extracted_count} files matching pattern '{pattern}'");
+        println!(
+            "Extracted {} files matching pattern '{pattern}'",
+            extracted_files.len()
+        );
     } else {
-        println!("Extracted {extracted_count} files");
+        println!("Extracted {} files", extracted_files.len());
     }
-    Ok(())
+    Ok(extracted_files)
 }

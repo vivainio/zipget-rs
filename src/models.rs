@@ -148,6 +148,8 @@ pub struct FetchItem {
     pub no_shim: Option<bool>,
     /// Lock information (SHA-256 hash and direct download URL)
     pub lock: Option<LockInfo>,
+    /// Set executable permission on extracted files (Unix only)
+    pub executable: Option<bool>,
 }
 
 /// GitHub repository fetch configuration

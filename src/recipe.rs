@@ -220,6 +220,10 @@ fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
             output.push_str(&format!("profile = \"{profile}\"\n"));
         }
 
+        if fetch_item.executable == Some(true) {
+            output.push_str("executable = true\n");
+        }
+
         // Handle GitHub configuration
         if let Some(github) = &fetch_item.github {
             let mut github_parts = vec![format!("repo = \"{}\"", github.repo)];
@@ -359,16 +363,28 @@ pub fn process_fetch_item(
     // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
         println!("Extracting to: {unzip_to}");
-        extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
+        let extracted_files = extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
+
+        // Set executable permission if requested (Unix only)
+        #[cfg(unix)]
+        if fetch_item.executable == Some(true) {
+            set_executable_on_files(&extracted_files)?;
+        }
     }
 
     Ok(Some(computed_sha))
 }
 
-/// Extract archive based on file extension
-fn extract_archive(file_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+use std::path::PathBuf;
+
+/// Extract archive based on file extension, returns list of extracted files
+fn extract_archive(
+    file_path: &Path,
+    extract_to: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<PathBuf>> {
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
-        zip::extract_zip(file_path, extract_to, file_pattern)?;
+        zip::extract_zip(file_path, extract_to, file_pattern)
     } else if file_path
         .file_name()
         .and_then(|s| s.to_str())
@@ -376,9 +392,35 @@ fn extract_archive(file_path: &Path, extract_to: &str, file_pattern: Option<&str
         .ends_with(".tar.gz")
         || file_path.extension().and_then(|s| s.to_str()) == Some("tgz")
     {
-        tar::extract_tar_gz(file_path, extract_to, file_pattern)?;
+        tar::extract_tar_gz(file_path, extract_to, file_pattern)
+    } else if file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .ends_with(".tar.zst")
+    {
+        tar::extract_tar_zst(file_path, extract_to, file_pattern)
     } else {
         println!("Warning: Unknown archive format, skipping extraction");
+        Ok(Vec::new())
+    }
+}
+
+/// Set executable permission on specific files (Unix only)
+#[cfg(unix)]
+fn set_executable_on_files(files: &[PathBuf]) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    for path in files {
+        if path.is_file() {
+            let metadata = fs::metadata(path)?;
+            let mut perms = metadata.permissions();
+            let mode = perms.mode();
+            // Add execute bits where read bits are set
+            let new_mode = mode | ((mode & 0o444) >> 2);
+            perms.set_mode(new_mode);
+            fs::set_permissions(path, perms)?;
+        }
     }
     Ok(())
 }

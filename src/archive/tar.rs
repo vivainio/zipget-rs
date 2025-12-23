@@ -3,11 +3,15 @@ use flate2::read::GzDecoder;
 use glob_match::glob_match;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 
-/// Extract TAR.GZ archive
-pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+/// Extract TAR.GZ archive, returns list of extracted file paths
+pub fn extract_tar_gz(
+    tar_path: &Path,
+    extract_to: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<PathBuf>> {
     let file = fs::File::open(tar_path)
         .with_context(|| format!("Failed to open tar.gz file: {}", tar_path.display()))?;
 
@@ -15,8 +19,12 @@ pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&s
     extract_tar_from_reader(decoder, extract_to, file_pattern, "tar.gz")
 }
 
-/// Extract TAR.ZST archive (Zstandard compression)
-pub fn extract_tar_zst(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+/// Extract TAR.ZST archive (Zstandard compression), returns list of extracted file paths
+pub fn extract_tar_zst(
+    tar_path: &Path,
+    extract_to: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<PathBuf>> {
     let file = fs::File::open(tar_path)
         .with_context(|| format!("Failed to open tar.zst file: {}", tar_path.display()))?;
 
@@ -25,19 +33,19 @@ pub fn extract_tar_zst(tar_path: &Path, extract_to: &str, file_pattern: Option<&
     extract_tar_from_reader(decoder, extract_to, file_pattern, "tar.zst")
 }
 
-/// Extract TAR archive from a generic reader
+/// Extract TAR archive from a generic reader, returns list of extracted file paths
 fn extract_tar_from_reader<R: Read>(
     reader: R,
     extract_to: &str,
     file_pattern: Option<&str>,
     archive_type: &str,
-) -> Result<()> {
+) -> Result<Vec<PathBuf>> {
     let mut archive = Archive::new(reader);
 
     fs::create_dir_all(extract_to)
         .with_context(|| format!("Failed to create extraction directory: {extract_to}"))?;
 
-    let mut extracted_count = 0;
+    let mut extracted_files = Vec::new();
 
     for entry in archive
         .entries()
@@ -90,13 +98,16 @@ fn extract_tar_from_reader<R: Read>(
             .unpack(&outpath)
             .with_context(|| format!("Failed to extract file: {}", outpath.display()))?;
 
-        extracted_count += 1;
+        extracted_files.push(outpath);
     }
 
     if let Some(pattern) = file_pattern {
-        println!("Extracted {extracted_count} files matching pattern '{pattern}'");
+        println!(
+            "Extracted {} files matching pattern '{pattern}'",
+            extracted_files.len()
+        );
     } else {
-        println!("Extracted {extracted_count} files");
+        println!("Extracted {} files", extracted_files.len());
     }
-    Ok(())
+    Ok(extracted_files)
 }

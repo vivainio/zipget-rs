@@ -81,9 +81,16 @@ pub fn install_package(
     let temp_path = temp_base.join(&temp_dir_name);
     fs::create_dir_all(&temp_path).context("Failed to create temporary directory")?;
 
+    // Check if source is a GitHub repository (owner/repo format or github.com URL)
+    let is_github = source.contains("github.com/")
+        || (source.contains('/')
+            && !source.starts_with('/')
+            && !source.starts_with('.')
+            && !source.contains("://"));
+
     // Determine if source is a GitHub repository or direct URL
-    if source.contains("github.com/") {
-        // Extract user/repo from GitHub URL
+    if is_github {
+        // Extract user/repo from GitHub URL or use directly if already in owner/repo format
         let repo_path = if source.contains("github.com/") {
             source
                 .strip_prefix("https://")

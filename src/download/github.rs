@@ -124,11 +124,11 @@ fn extract_archive_with_options(
         .unwrap_or("");
 
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
-        zip::extract_zip(file_path, extract_to, files_pattern)?;
+        let _ = zip::extract_zip(file_path, extract_to, files_pattern)?;
     } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
-        tar::extract_tar_gz(file_path, extract_to, files_pattern)?;
+        let _ = tar::extract_tar_gz(file_path, extract_to, files_pattern)?;
     } else if filename.ends_with(".tar.zst") {
-        tar::extract_tar_zst(file_path, extract_to, files_pattern)?;
+        let _ = tar::extract_tar_zst(file_path, extract_to, files_pattern)?;
     } else {
         println!("Warning: Unknown archive format, skipping extraction");
     }
