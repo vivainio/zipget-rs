@@ -197,3 +197,139 @@ pub struct LockResult {
     pub resolved_tag: Option<String>, // For GitHub releases without explicit tags
     pub download_url: Option<String>, // Direct download URL for GitHub assets
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_recipe() {
+        let toml_str = r#"
+[mypackage]
+url = "https://example.com/file.zip"
+save_as = "./downloads/file.zip"
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        assert!(recipe.items.contains_key("mypackage"));
+        let item = &recipe.items["mypackage"];
+        assert_eq!(item.url, Some("https://example.com/file.zip".to_string()));
+        assert_eq!(item.save_as, Some("./downloads/file.zip".to_string()));
+    }
+
+    #[test]
+    fn test_parse_recipe_with_github() {
+        let toml_str = r#"
+[cli-tool]
+github = { repo = "owner/repo", asset = "tool-linux-amd64.tar.gz", tag = "v1.0.0" }
+unzip_to = "./bin"
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        let item = &recipe.items["cli-tool"];
+        let github = item.github.as_ref().unwrap();
+        assert_eq!(github.repo, "owner/repo");
+        assert_eq!(github.asset, Some("tool-linux-amd64.tar.gz".to_string()));
+        assert_eq!(github.tag, Some("v1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_parse_recipe_with_vars() {
+        let toml_str = r#"
+[vars]
+version = "1.2.3"
+platform = "linux"
+
+[mypackage]
+url = "https://example.com/file-${version}-${platform}.zip"
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        assert_eq!(recipe.vars.get("version"), Some(&"1.2.3".to_string()));
+        assert_eq!(recipe.vars.get("platform"), Some(&"linux".to_string()));
+        assert!(recipe.items.contains_key("mypackage"));
+    }
+
+    #[test]
+    fn test_parse_recipe_with_lock() {
+        let toml_str = r#"
+[mypackage]
+url = "https://example.com/file.zip"
+lock = { sha = "abc123def456", download_url = "https://cdn.example.com/file.zip" }
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        let item = &recipe.items["mypackage"];
+        let lock = item.lock.as_ref().unwrap();
+        assert_eq!(lock.sha, Some("abc123def456".to_string()));
+        assert_eq!(
+            lock.download_url,
+            Some("https://cdn.example.com/file.zip".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_recipe_with_files_pattern() {
+        let toml_str = r#"
+[docs]
+url = "https://example.com/repo.zip"
+unzip_to = "./docs"
+files = "*.md"
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        let item = &recipe.items["docs"];
+        assert_eq!(item.files, Some("*.md".to_string()));
+    }
+
+    #[test]
+    fn test_parse_recipe_with_executable_flag() {
+        let toml_str = r#"
+[binary]
+url = "https://example.com/tool.tar.gz"
+unzip_to = "./bin"
+executable = true
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        let item = &recipe.items["binary"];
+        assert_eq!(item.executable, Some(true));
+    }
+
+    #[test]
+    fn test_parse_multiple_items() {
+        let toml_str = r#"
+[item1]
+url = "https://example.com/file1.zip"
+
+[item2]
+url = "https://example.com/file2.zip"
+
+[item3]
+github = { repo = "owner/repo" }
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        assert_eq!(recipe.items.len(), 3);
+        assert!(recipe.items.contains_key("item1"));
+        assert!(recipe.items.contains_key("item2"));
+        assert!(recipe.items.contains_key("item3"));
+    }
+
+    #[test]
+    fn test_parse_empty_recipe() {
+        let toml_str = "";
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        assert!(recipe.items.is_empty());
+        assert!(recipe.vars.is_empty());
+    }
+
+    #[test]
+    fn test_parse_recipe_with_install_exes() {
+        let toml_str = r#"
+[tools]
+url = "https://example.com/tools.zip"
+unzip_to = "./tools"
+install_exes = ["bin/tool1", "bin/tool2"]
+"#;
+        let recipe: Recipe = toml::from_str(toml_str).unwrap();
+        let item = &recipe.items["tools"];
+        let exes = item.install_exes.as_ref().unwrap();
+        assert_eq!(exes.len(), 2);
+        assert_eq!(exes[0], "bin/tool1");
+        assert_eq!(exes[1], "bin/tool2");
+    }
+}

@@ -17,8 +17,11 @@ glob-match = "0.2"
 dirs = "6.0.0"
 sha2 = "0.10"  # SHA-256 for verification and caching
 
+[dev-dependencies]
+tempfile = "3.10"
+
 [profile.release]
 strip = true          # Remove debug symbols
-lto = true           # Link-time optimization  
+lto = true           # Link-time optimization
 codegen-units = 1    # Better optimization
 panic = "abort"      # Smaller panic handling

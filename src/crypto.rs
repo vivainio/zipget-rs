@@ -56,3 +56,94 @@ pub fn verify_sha256(file_path: &Path, expected_sha: &str) -> Result<bool> {
         Ok(false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_compute_sha256_from_bytes_empty() {
+        // SHA-256 of empty input
+        let hash = compute_sha256_from_bytes(b"");
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn test_compute_sha256_from_bytes_hello() {
+        // SHA-256 of "hello"
+        let hash = compute_sha256_from_bytes(b"hello");
+        assert_eq!(
+            hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn test_compute_sha256_from_bytes_deterministic() {
+        let data = b"test data for hashing";
+        let hash1 = compute_sha256_from_bytes(data);
+        let hash2 = compute_sha256_from_bytes(data);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_sha256_file() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"hello").unwrap();
+        temp_file.flush().unwrap();
+
+        let hash = compute_sha256(temp_file.path()).unwrap();
+        assert_eq!(
+            hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn test_verify_sha256_correct() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"hello").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = verify_sha256(
+            temp_file.path(),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_verify_sha256_case_insensitive() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"hello").unwrap();
+        temp_file.flush().unwrap();
+
+        // Test uppercase input
+        let result = verify_sha256(
+            temp_file.path(),
+            "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824",
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_verify_sha256_incorrect() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"hello").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = verify_sha256(
+            temp_file.path(),
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        assert!(!result);
+    }
+}

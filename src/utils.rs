@@ -102,3 +102,87 @@ pub fn is_platform_identifier(part: &str, platform_patterns: &[&str]) -> bool {
         .iter()
         .any(|&pattern| part == pattern || part.contains(pattern))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_filename_from_url_simple() {
+        assert_eq!(
+            get_filename_from_url("https://example.com/file.zip"),
+            "file.zip"
+        );
+    }
+
+    #[test]
+    fn test_get_filename_from_url_with_query() {
+        assert_eq!(
+            get_filename_from_url("https://example.com/file.zip?token=abc123"),
+            "file.zip"
+        );
+    }
+
+    #[test]
+    fn test_get_filename_from_url_github() {
+        assert_eq!(
+            get_filename_from_url("https://github.com/user/repo/releases/download/v1.0/app-linux-amd64.tar.gz"),
+            "app-linux-amd64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn test_get_filename_from_url_s3() {
+        assert_eq!(
+            get_filename_from_url("s3://mybucket/path/to/file.zip"),
+            "file.zip"
+        );
+    }
+
+    #[test]
+    fn test_get_filename_from_url_empty_path() {
+        assert_eq!(get_filename_from_url("https://example.com/"), "");
+    }
+
+    #[test]
+    fn test_is_version_like_semver() {
+        assert!(is_version_like("1.2.3"));
+        assert!(is_version_like("0.1.0"));
+        assert!(is_version_like("10.20.30"));
+    }
+
+    #[test]
+    fn test_is_version_like_with_v_prefix() {
+        assert!(is_version_like("v1.2.3"));
+        assert!(is_version_like("V2.0.0"));
+    }
+
+    #[test]
+    fn test_is_version_like_two_parts() {
+        assert!(is_version_like("1.0"));
+        assert!(is_version_like("v2.1"));
+    }
+
+    #[test]
+    fn test_is_version_like_with_suffix() {
+        assert!(is_version_like("1.0.0-alpha"));
+        assert!(is_version_like("2.0.0-beta.1"));
+        assert!(is_version_like("1.0.0+build123"));
+    }
+
+    #[test]
+    fn test_is_version_like_not_version() {
+        assert!(!is_version_like("linux"));
+        assert!(!is_version_like("amd64"));
+        assert!(!is_version_like("windows"));
+        assert!(!is_version_like(""));
+        assert!(!is_version_like("abc"));
+    }
+
+    #[test]
+    fn test_is_version_like_edge_cases() {
+        assert!(!is_version_like("1")); // No dot
+        assert!(!is_version_like("1.")); // No digit after dot
+        assert!(!is_version_like(".1.2")); // Doesn't start with digit
+    }
+}
