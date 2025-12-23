@@ -12,3 +12,4 @@
 
 # Claude Code
 .claude
+*.tar.gz
