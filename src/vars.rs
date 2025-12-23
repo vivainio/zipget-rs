@@ -110,14 +110,14 @@ impl VarContext {
 
     /// Expand tilde at start of string to home directory
     fn expand_tilde(&self, input: &str) -> String {
-        if input.starts_with("~/") {
-            if let Some(home) = self.vars.get("home") {
-                return format!("{}{}", home, &input[1..]);
-            }
-        } else if input == "~" {
-            if let Some(home) = self.vars.get("home") {
-                return home.clone();
-            }
+        if input.starts_with("~/")
+            && let Some(home) = self.vars.get("home")
+        {
+            return format!("{}{}", home, &input[1..]);
+        } else if input == "~"
+            && let Some(home) = self.vars.get("home")
+        {
+            return home.clone();
         }
         input.to_string()
     }
