@@ -65,15 +65,9 @@ pub fn install_package(
     #[cfg(windows)]
     use crate::install::shim;
 
-    // Check if no_shim is used on non-Windows
-    #[cfg(not(windows))]
-    {
-        if no_shim {
-            return Err(anyhow::anyhow!(
-                "--no-shim is only supported on Windows. On Unix systems, use default shim installation."
-            ));
-        }
-    }
+    // Note: --no-shim is silently accepted on Unix since direct installation
+    // is the only behavior (shims are Windows-only)
+    let _ = no_shim; // Suppress unused warning on Unix
 
     // Create temporary directory for extraction
     let temp_base = std::env::temp_dir();
