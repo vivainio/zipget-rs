@@ -126,7 +126,9 @@ mod tests {
     #[test]
     fn test_get_filename_from_url_github() {
         assert_eq!(
-            get_filename_from_url("https://github.com/user/repo/releases/download/v1.0/app-linux-amd64.tar.gz"),
+            get_filename_from_url(
+                "https://github.com/user/repo/releases/download/v1.0/app-linux-amd64.tar.gz"
+            ),
             "app-linux-amd64.tar.gz"
         );
     }

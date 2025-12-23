@@ -177,7 +177,13 @@ mod tests {
         let dst_path = dst.path().join("copied");
         copy_dir_all(src.path(), &dst_path).unwrap();
 
-        assert!(dst_path.join("subdir").join("nested").join("deep.txt").exists());
+        assert!(
+            dst_path
+                .join("subdir")
+                .join("nested")
+                .join("deep.txt")
+                .exists()
+        );
     }
 
     #[test]
