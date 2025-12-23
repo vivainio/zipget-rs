@@ -1,7 +1,0 @@
-[test-item]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
-save_as = "./debug-test.zip"
-
-[test-item.lock]
-sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7"
-download_url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"

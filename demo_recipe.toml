@@ -1,32 +1,63 @@
-[s3-app]
-url = "s3://my-tools-bucket/releases/app-v1.2.3.zip"
-unzip_to = "./downloads/s3-tools"
-files = "*.exe"
-# Lock information (added by --lock)
-lock = { sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", download_url = "https://example.com/direct/download/link.zip" }
+# zipget-rs Demo Recipe
+# This file demonstrates all available recipe features.
+# Run with: zipget recipe demo_recipe.toml
+
+# =============================================================================
+# Variables
+# =============================================================================
+# Define custom variables in [vars] section, then use ${varname} anywhere.
+# Override at runtime with: zipget recipe demo_recipe.toml --var version=2.0.0
+#
+# Built-in variables (always available):
+#   ${os}         - operating system (linux, macos, windows)
+#   ${arch}       - architecture (x86_64, aarch64, etc.)
+#   ${home}       - user's home directory
+#   ${recipe_dir} - directory containing this recipe file
+#   ${env.VAR}    - environment variable (e.g., ${env.HOME}, ${env.USER})
+#   ~/path        - expands to home directory (shorthand for ${home}/path)
+#
+# Escaping: use $${literal} to produce literal ${literal} in output
+
+[vars]
+version = "1.2.3"
+tools_dir = "./tools"
+company_bucket = "my-company-tools"
+
+# =============================================================================
+# HTTP/HTTPS Downloads
+# =============================================================================
 
 [modulize]
+# Basic HTTP download with extraction
 url = "https://github.com/vivainio/Modulize/releases/download/v2.1/Modulize.zip"
 unzip_to = "./downloads"
 
 [hashibuild]
+# HTTP download with both extraction and saving the archive
 url = "https://github.com/vivainio/hashibuild/archive/refs/heads/master.zip"
 unzip_to = "./downloads"
 save_as = "./downloads/hashibuild-master.zip"
 
-[ripgrep]
-github = { repo = "BurntSushi/ripgrep", asset = "linux", tag = "14.1.1" }
-unzip_to = "./downloads"
-files = "rg"
-install_exes = ["rg"]
-no_shim = true
-# Example lock information (use --lock to generate automatically)
-# lock = { sha = "abc123def456...", download_url = "https://..." }
+# =============================================================================
+# GitHub Releases
+# =============================================================================
 
 [bat]
-github = { repo = "sharkdp/bat", asset = "linux" }
+# GitHub release with auto-detected platform asset (no 'asset' specified)
+# zipget automatically selects the best binary for your OS/arch
+github = { repo = "sharkdp/bat" }
 unzip_to = "./tools/bat"
 install_exes = ["bat"]
+
+[ripgrep]
+# GitHub release with explicit asset pattern and pinned version tag
+github = { repo = "BurntSushi/ripgrep", asset = "linux", tag = "14.1.1" }
+unzip_to = "./downloads"
+files = "rg"                    # Extract only matching files (flattens directory structure)
+install_exes = ["rg"]           # Install to ~/.local/bin
+no_shim = true                  # Copy directly instead of creating shims (cross-platform)
+# Lock information can be added with --lock flag:
+# lock = { sha = "abc123...", download_url = "https://..." }
 
 [fd-find]
 github = { repo = "sharkdp/fd", asset = "linux" }
@@ -34,20 +65,68 @@ unzip_to = "./tools/fd"
 install_exes = ["fd"]
 no_shim = true
 
-# Example: Install all .exe files using glob pattern (Windows)
+# =============================================================================
+# S3 Downloads (requires AWS CLI configured)
+# =============================================================================
+
+[s3-app]
+# S3 download with file filtering
+url = "s3://my-tools-bucket/releases/app-v1.2.3.zip"
+unzip_to = "./downloads/s3-tools"
+files = "*.exe"
+# Lock information (added by --lock)
+lock = { sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", download_url = "https://example.com/direct/download/link.zip" }
+
+[internal-tool]
+# S3 download with specific AWS profile
+url = "s3://company-private-bucket/internal/tool.tar.gz"
+unzip_to = "./downloads/internal-tools"
+profile = "company-profile"     # Uses this AWS profile instead of default
+
+# =============================================================================
+# Local File Paths
+# =============================================================================
+
+[local-scripts]
+# Extract from a local archive (paths starting with ./ or /)
+url = "./archives/my-scripts.tar.gz"
+unzip_to = "./tools/scripts"
+files = "*.sh"
+executable = true               # Set executable permission on extracted files (Unix only)
+
+# =============================================================================
+# Install Patterns
+# =============================================================================
+
 [windows-tools]
+# Install all .exe files using glob pattern
 url = "https://example.com/tools.zip"
 unzip_to = "./tools/windows"
-install_exes = ["*.exe"]
+install_exes = ["*.exe"]        # Glob pattern to match executables
 no_shim = true
 
-# Example: Install all executables starting with "tool-" using glob pattern
 [tool-suite]
+# Install multiple executables using multiple glob patterns
 url = "https://example.com/toolsuite.tar.gz"
 unzip_to = "./tools/suite"
 install_exes = ["tool-*", "util-*"]
 
-[internal-tool]
-url = "s3://company-private-bucket/internal/tool.tar.gz"
-unzip_to = "./downloads/internal-tools"
-profile = "company-profile"
+# =============================================================================
+# Variable Expansion Examples
+# =============================================================================
+
+[versioned-app]
+# Using custom variables from [vars] section
+url = "https://releases.example.com/app-v${version}-${os}-${arch}.tar.gz"
+unzip_to = "${tools_dir}/app"
+
+[platform-tool]
+# Using built-in ${os} and ${arch} for cross-platform recipes
+# Also supports ~ for home directory (equivalent to ${home})
+url = "https://example.com/tool-${os}-${arch}.zip"
+unzip_to = "~/.local/tools"
+
+[company-internal]
+# Combining custom and environment variables
+url = "s3://${company_bucket}/releases/${env.USER}/latest.zip"
+unzip_to = "${recipe_dir}/output"

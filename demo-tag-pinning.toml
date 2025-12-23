@@ -1,7 +1,0 @@
-[example-tool]
-save_as = "./demo-tool.zip"
-sha = "26465703a3ac0aa2635d61d6eb3cf3dd6f35bc2bc153fd252abefdeedce10acf"
-
-[example-tool.github]
-repo = "vivainio/unxml-rs"
-tag = "v0.2.1"
