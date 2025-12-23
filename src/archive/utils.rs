@@ -94,3 +94,107 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_should_flatten_nonexistent_directory() {
+        let result = should_flatten_directory(Path::new("/nonexistent/path/12345")).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_should_flatten_single_subdir() {
+        let temp = TempDir::new().unwrap();
+        let subdir = temp.path().join("repo-master");
+        fs::create_dir(&subdir).unwrap();
+        fs::write(subdir.join("file.txt"), "content").unwrap();
+
+        let result = should_flatten_directory(temp.path()).unwrap();
+        assert_eq!(result, Some("repo-master".to_string()));
+    }
+
+    #[test]
+    fn test_should_flatten_multiple_items() {
+        let temp = TempDir::new().unwrap();
+        fs::create_dir(temp.path().join("dir1")).unwrap();
+        fs::create_dir(temp.path().join("dir2")).unwrap();
+
+        let result = should_flatten_directory(temp.path()).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_should_flatten_file_at_root() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("file.txt"), "content").unwrap();
+
+        let result = should_flatten_directory(temp.path()).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_should_flatten_mixed_content() {
+        let temp = TempDir::new().unwrap();
+        fs::create_dir(temp.path().join("subdir")).unwrap();
+        fs::write(temp.path().join("file.txt"), "content").unwrap();
+
+        let result = should_flatten_directory(temp.path()).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_copy_dir_all_simple() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        fs::write(src.path().join("file1.txt"), "content1").unwrap();
+        fs::write(src.path().join("file2.txt"), "content2").unwrap();
+
+        let dst_path = dst.path().join("copied");
+        copy_dir_all(src.path(), &dst_path).unwrap();
+
+        assert!(dst_path.join("file1.txt").exists());
+        assert!(dst_path.join("file2.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dst_path.join("file1.txt")).unwrap(),
+            "content1"
+        );
+    }
+
+    #[test]
+    fn test_copy_dir_all_nested() {
+        let src = TempDir::new().unwrap();
+        let dst = TempDir::new().unwrap();
+
+        let nested = src.path().join("subdir").join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("deep.txt"), "deep content").unwrap();
+
+        let dst_path = dst.path().join("copied");
+        copy_dir_all(src.path(), &dst_path).unwrap();
+
+        assert!(dst_path.join("subdir").join("nested").join("deep.txt").exists());
+    }
+
+    #[test]
+    fn test_flatten_directory_structure() {
+        let temp = TempDir::new().unwrap();
+        let subdir = temp.path().join("repo-v1.0");
+        fs::create_dir(&subdir).unwrap();
+        fs::write(subdir.join("README.md"), "readme").unwrap();
+        fs::create_dir(subdir.join("src")).unwrap();
+        fs::write(subdir.join("src").join("main.rs"), "fn main() {}").unwrap();
+
+        flatten_directory_structure(temp.path(), "repo-v1.0").unwrap();
+
+        // After flattening, files should be at root level
+        assert!(temp.path().join("README.md").exists());
+        assert!(temp.path().join("src").join("main.rs").exists());
+        // Original subdir should be gone
+        assert!(!temp.path().join("repo-v1.0").exists());
+    }
+}

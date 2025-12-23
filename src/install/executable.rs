@@ -232,3 +232,132 @@ pub fn install_package(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_is_executable_nonexistent() {
+        let result = is_executable(Path::new("/nonexistent/file/12345"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_is_executable_directory() {
+        let temp = TempDir::new().unwrap();
+        let result = is_executable(temp.path()).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_is_executable_regular_file() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("test.txt");
+        fs::write(&file_path, "content").unwrap();
+
+        let result = is_executable(&file_path).unwrap();
+        // Regular files are not executable by default
+        assert!(!result);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_executable_unix_executable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("script.sh");
+        fs::write(&file_path, "#!/bin/bash\necho hello").unwrap();
+
+        // Make it executable
+        let perms = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&file_path, perms).unwrap();
+
+        let result = is_executable(&file_path).unwrap();
+        assert!(result);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_is_executable_windows_exe() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("program.exe");
+        fs::write(&file_path, "fake exe content").unwrap();
+
+        let result = is_executable(&file_path).unwrap();
+        assert!(result);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_is_executable_windows_non_exe() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("document.txt");
+        fs::write(&file_path, "text content").unwrap();
+
+        let result = is_executable(&file_path).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_find_executables_empty_dir() {
+        let temp = TempDir::new().unwrap();
+        let result = find_executables(temp.path()).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_find_executables_unix() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().unwrap();
+
+        // Create non-executable file
+        fs::write(temp.path().join("readme.txt"), "readme").unwrap();
+
+        // Create executable file
+        let exe_path = temp.path().join("tool");
+        fs::write(&exe_path, "#!/bin/bash").unwrap();
+        fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = find_executables(temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].ends_with("tool"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_find_executables_windows() {
+        let temp = TempDir::new().unwrap();
+
+        // Create non-executable file
+        fs::write(temp.path().join("readme.txt"), "readme").unwrap();
+
+        // Create exe file
+        fs::write(temp.path().join("tool.exe"), "fake exe").unwrap();
+
+        let result = find_executables(temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].to_string_lossy().ends_with("tool.exe"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_find_executables_nested() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new().unwrap();
+        let bin_dir = temp.path().join("bin");
+        fs::create_dir(&bin_dir).unwrap();
+
+        let exe_path = bin_dir.join("nested-tool");
+        fs::write(&exe_path, "#!/bin/bash").unwrap();
+        fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = find_executables(temp.path()).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+}

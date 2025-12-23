@@ -254,17 +254,17 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
         _ => vec![arch],
     };
 
-    let mut best_score = 0;
+    let mut best_score: i32 = 0;
     let mut best_asset = None;
 
     for asset in assets {
         let name_lower = asset.name.to_lowercase();
-        let mut score = 0;
+        let mut score: i32 = 0;
 
         // Score OS match (higher weight)
         for (i, pattern) in os_patterns.iter().enumerate() {
             if name_lower.contains(pattern) {
-                score += 100 - (i * 10); // First match gets 100, second gets 90, etc.
+                score += 100 - (i as i32 * 10); // First match gets 100, second gets 90, etc.
                 break;
             }
         }
@@ -272,7 +272,7 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
         // Score architecture match (medium weight)
         for (i, pattern) in arch_patterns.iter().enumerate() {
             if name_lower.contains(pattern) {
-                score += 50 - (i * 5); // First match gets 50, second gets 45, etc.
+                score += 50 - (i as i32 * 5); // First match gets 50, second gets 45, etc.
                 break;
             }
         }
@@ -305,8 +305,98 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
     best_asset
 }
 
-// TODO: Add other GitHub functions here
-// - get_best_binary_from_release
-// - fetch_github_release
-// - get_github_release_url
-// - get_latest_github_tag
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_asset(name: &str, size: u64) -> GitHubAsset {
+        GitHubAsset {
+            name: name.to_string(),
+            browser_download_url: format!("https://example.com/{name}"),
+            size,
+        }
+    }
+
+    #[test]
+    fn test_find_best_matching_binary_linux_x64() {
+        let assets = vec![
+            make_asset("tool-linux-amd64.tar.gz", 1000),
+            make_asset("tool-windows-amd64.zip", 1000),
+            make_asset("tool-darwin-amd64.tar.gz", 1000),
+        ];
+
+        // This test is platform-dependent, so just verify it returns something
+        let result = find_best_matching_binary(&assets);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_find_best_matching_binary_prefers_archive() {
+        let assets = vec![
+            make_asset("tool.tar.gz", 1000),
+            make_asset("tool.deb", 1000),
+            make_asset("tool.rpm", 1000),
+        ];
+
+        let result = find_best_matching_binary(&assets);
+        // Should prefer .tar.gz over .deb and .rpm
+        assert!(result.is_some());
+        if let Some(name) = result {
+            assert!(name.ends_with(".tar.gz") || name.ends_with(".zip"));
+        }
+    }
+
+    #[test]
+    fn test_find_best_matching_binary_avoids_source() {
+        let assets = vec![
+            make_asset("tool-src.tar.gz", 1000),
+            make_asset("tool-source.tar.gz", 1000),
+            make_asset("tool-linux-amd64.tar.gz", 1000),
+        ];
+
+        let result = find_best_matching_binary(&assets);
+        assert!(result.is_some());
+        if let Some(name) = result {
+            // Should not select source packages
+            assert!(!name.contains("src"));
+            assert!(!name.contains("source"));
+        }
+    }
+
+    #[test]
+    fn test_find_best_matching_binary_avoids_debug() {
+        let assets = vec![
+            make_asset("tool-debug.tar.gz", 1000),
+            make_asset("tool-symbols.tar.gz", 1000),
+            make_asset("tool-linux-amd64.tar.gz", 1000),
+        ];
+
+        let result = find_best_matching_binary(&assets);
+        assert!(result.is_some());
+        if let Some(name) = result {
+            // Should not select debug/symbols packages
+            assert!(!name.contains("debug"));
+            assert!(!name.contains("symbols"));
+        }
+    }
+
+    #[test]
+    fn test_find_best_matching_binary_empty_assets() {
+        let assets: Vec<GitHubAsset> = vec![];
+        let result = find_best_matching_binary(&assets);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_best_matching_binary_various_extensions() {
+        let assets = vec![
+            make_asset("tool.tar.gz", 1000),
+            make_asset("tool.tgz", 1000),
+            make_asset("tool.zip", 1000),
+            make_asset("tool.tar.zst", 1000),
+        ];
+
+        let result = find_best_matching_binary(&assets);
+        assert!(result.is_some());
+    }
+}
