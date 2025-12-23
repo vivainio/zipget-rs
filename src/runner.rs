@@ -139,16 +139,17 @@ pub fn fetch_direct_url(
     if let Some(extract_dir) = unzip_to {
         println!("Extracting to: {extract_dir}");
 
-        if local_path.extension().and_then(|s| s.to_str()) == Some("zip") {
-            zip::extract_zip(&local_path, extract_dir, files)?;
-        } else if local_path
+        let filename = local_path
             .file_name()
             .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .ends_with(".tar.gz")
-            || local_path.extension().and_then(|s| s.to_str()) == Some("tgz")
-        {
+            .unwrap_or("");
+
+        if local_path.extension().and_then(|s| s.to_str()) == Some("zip") {
+            zip::extract_zip(&local_path, extract_dir, files)?;
+        } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
             tar::extract_tar_gz(&local_path, extract_dir, files)?;
+        } else if filename.ends_with(".tar.zst") {
+            tar::extract_tar_zst(&local_path, extract_dir, files)?;
         } else {
             println!("Warning: Unknown archive format, skipping extraction");
         }

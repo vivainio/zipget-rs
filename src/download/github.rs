@@ -118,16 +118,17 @@ fn extract_archive_with_options(
 ) -> Result<()> {
     use crate::archive::{tar, zip};
 
-    if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
-        zip::extract_zip(file_path, extract_to, files_pattern)?;
-    } else if file_path
+    let filename = file_path
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .ends_with(".tar.gz")
-        || file_path.extension().and_then(|s| s.to_str()) == Some("tgz")
-    {
+        .unwrap_or("");
+
+    if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
+        zip::extract_zip(file_path, extract_to, files_pattern)?;
+    } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
         tar::extract_tar_gz(file_path, extract_to, files_pattern)?;
+    } else if filename.ends_with(".tar.zst") {
+        tar::extract_tar_zst(file_path, extract_to, files_pattern)?;
     } else {
         println!("Warning: Unknown archive format, skipping extraction");
     }
@@ -198,6 +199,7 @@ pub fn get_best_binary_from_release(
         if name_lower.ends_with(".exe")
             || name_lower.ends_with(".zip")
             || name_lower.ends_with(".tar.gz")
+            || name_lower.ends_with(".tar.zst")
         {
             score += 10;
         }
@@ -282,6 +284,7 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
         if name_lower.ends_with(".zip")
             || name_lower.ends_with(".tar.gz")
             || name_lower.ends_with(".tgz")
+            || name_lower.ends_with(".tar.zst")
         {
             score += 10;
         }

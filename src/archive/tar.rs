@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
 use glob_match::glob_match;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use tar::Archive;
 
@@ -10,8 +11,28 @@ pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&s
     let file = fs::File::open(tar_path)
         .with_context(|| format!("Failed to open tar.gz file: {}", tar_path.display()))?;
 
-    let tar = GzDecoder::new(file);
-    let mut archive = Archive::new(tar);
+    let decoder = GzDecoder::new(file);
+    extract_tar_from_reader(decoder, extract_to, file_pattern, "tar.gz")
+}
+
+/// Extract TAR.ZST archive (Zstandard compression)
+pub fn extract_tar_zst(tar_path: &Path, extract_to: &str, file_pattern: Option<&str>) -> Result<()> {
+    let file = fs::File::open(tar_path)
+        .with_context(|| format!("Failed to open tar.zst file: {}", tar_path.display()))?;
+
+    let decoder = zstd::Decoder::new(file)
+        .with_context(|| format!("Failed to create zstd decoder for: {}", tar_path.display()))?;
+    extract_tar_from_reader(decoder, extract_to, file_pattern, "tar.zst")
+}
+
+/// Extract TAR archive from a generic reader
+fn extract_tar_from_reader<R: Read>(
+    reader: R,
+    extract_to: &str,
+    file_pattern: Option<&str>,
+    archive_type: &str,
+) -> Result<()> {
+    let mut archive = Archive::new(reader);
 
     fs::create_dir_all(extract_to)
         .with_context(|| format!("Failed to create extraction directory: {extract_to}"))?;
@@ -20,9 +41,9 @@ pub fn extract_tar_gz(tar_path: &Path, extract_to: &str, file_pattern: Option<&s
 
     for entry in archive
         .entries()
-        .with_context(|| "Failed to read tar.gz entries")?
+        .with_context(|| format!("Failed to read {archive_type} entries"))?
     {
-        let mut entry = entry.with_context(|| "Failed to access tar.gz entry")?;
+        let mut entry = entry.with_context(|| format!("Failed to access {archive_type} entry"))?;
 
         let path = entry.path().with_context(|| "Failed to get entry path")?;
 
