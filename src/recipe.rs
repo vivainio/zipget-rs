@@ -14,7 +14,7 @@ use std::path::Path;
 /// Process a recipe file with the given parameters
 pub fn process_recipe(
     file_path: &str,
-    tag: Option<&str>,
+    tags: &[String],
     upgrade: bool,
     profile: Option<&str>,
     lock: bool,
@@ -53,34 +53,38 @@ pub fn process_recipe(
 
     if dry {
         // Dry run mode - show expanded values without downloading
-        return dry_run_recipe(&recipe, tag, &var_ctx);
+        return dry_run_recipe(&recipe, tags, &var_ctx);
     }
 
     if lock {
         // Lock mode - process sequentially and update file
-        process_recipe_for_lock(file_path, &recipe, tag, profile, &var_ctx)
+        process_recipe_for_lock(file_path, &recipe, tags, profile, &var_ctx)
     } else {
         // Normal mode - process items
-        process_recipe_items(&recipe, tag, profile, &var_ctx)
+        process_recipe_items(&recipe, tags, profile, &var_ctx)
     }
 }
 
+/// Check if section name matches any of the provided tags
+fn matches_tags(section_name: &str, tags: &[String]) -> bool {
+    if tags.is_empty() {
+        return true;
+    }
+    tags.iter().any(|tag| section_name.contains(tag))
+}
+
 /// Dry run mode - show how variables would be expanded
-fn dry_run_recipe(recipe: &Recipe, tag: Option<&str>, var_ctx: &VarContext) -> Result<()> {
-    // Filter items by tag if specified
-    let items_to_process: Vec<(&String, &FetchItem)> = if let Some(filter_tag) = tag {
-        recipe
-            .items
-            .iter()
-            .filter(|(k, _)| k.contains(filter_tag))
-            .collect()
-    } else {
-        recipe.items.iter().collect()
-    };
+fn dry_run_recipe(recipe: &Recipe, tags: &[String], var_ctx: &VarContext) -> Result<()> {
+    // Filter items by tags if specified
+    let items_to_process: Vec<(&String, &FetchItem)> = recipe
+        .items
+        .iter()
+        .filter(|(k, _)| matches_tags(k, tags))
+        .collect();
 
     if items_to_process.is_empty() {
-        if let Some(filter_tag) = tag {
-            println!("No items found with tag: {filter_tag}");
+        if !tags.is_empty() {
+            println!("No items found matching tags: {}", tags.join(", "));
         } else {
             println!("No items to process in recipe");
         }
@@ -130,35 +134,31 @@ fn dry_run_recipe(recipe: &Recipe, tag: Option<&str>, var_ctx: &VarContext) -> R
 /// Process recipe items in normal mode
 fn process_recipe_items(
     recipe: &Recipe,
-    tag: Option<&str>,
+    tags: &[String],
     profile: Option<&str>,
     var_ctx: &VarContext,
 ) -> Result<()> {
-    // Filter items by tag if specified
-    let items_to_process: Vec<(&String, &FetchItem)> = if let Some(filter_tag) = tag {
-        recipe
-            .items
-            .iter()
-            .filter(|(k, _)| k.contains(filter_tag))
-            .collect()
-    } else {
-        recipe.items.iter().collect()
-    };
+    // Filter items by tags if specified
+    let items_to_process: Vec<(&String, &FetchItem)> = recipe
+        .items
+        .iter()
+        .filter(|(k, _)| matches_tags(k, tags))
+        .collect();
 
     if items_to_process.is_empty() {
-        if let Some(filter_tag) = tag {
-            println!("No items found with tag: {filter_tag}");
+        if !tags.is_empty() {
+            println!("No items found matching tags: {}", tags.join(", "));
         } else {
             println!("No items to process in recipe");
         }
         return Ok(());
     }
 
-    if let Some(filter_tag) = tag {
+    if !tags.is_empty() {
         println!(
-            "Processing {} items with tag: {}",
+            "Processing {} items matching tags: {}",
             items_to_process.len(),
-            filter_tag
+            tags.join(", ")
         );
     } else {
         println!(
@@ -248,7 +248,7 @@ fn substitute_github_fetch(github: &GitHubFetch, var_ctx: &VarContext) -> Result
 fn process_recipe_for_lock(
     file_path: &str,
     recipe: &Recipe,
-    tag: Option<&str>,
+    tags: &[String],
     profile: Option<&str>,
     var_ctx: &VarContext,
 ) -> Result<()> {
@@ -259,19 +259,13 @@ fn process_recipe_for_lock(
     let sections_to_process: Vec<(String, FetchItem)> = recipe
         .items
         .iter()
-        .filter(|(section_name, _)| {
-            if let Some(filter_tag) = tag {
-                section_name.contains(filter_tag)
-            } else {
-                true
-            }
-        })
+        .filter(|(section_name, _)| matches_tags(section_name, tags))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
     if sections_to_process.is_empty() {
-        if let Some(filter_tag) = tag {
-            println!("No items found with tag: {filter_tag}");
+        if !tags.is_empty() {
+            println!("No items found matching tags: {}", tags.join(", "));
         } else {
             println!("No items to process in recipe");
         }

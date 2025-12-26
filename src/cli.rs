@@ -9,7 +9,7 @@ pub fn run() -> Result<()> {
     match args.command {
         Commands::Recipe {
             file,
-            tag,
+            tags,
             upgrade,
             profile,
             lock,
@@ -18,7 +18,7 @@ pub fn run() -> Result<()> {
         } => {
             crate::recipe::process_recipe(
                 &file,
-                tag.as_deref(),
+                &tags,
                 upgrade,
                 profile.as_deref(),
                 lock,

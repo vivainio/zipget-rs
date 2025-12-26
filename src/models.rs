@@ -28,8 +28,8 @@ pub enum Commands {
     Recipe {
         /// TOML recipe file path
         file: String,
-        /// Optional tag to filter items by
-        tag: Option<String>,
+        /// Optional tags to filter items by (can specify multiple)
+        tags: Vec<String>,
         /// Upgrade all GitHub releases to latest versions
         #[arg(long)]
         upgrade: bool,
