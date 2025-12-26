@@ -184,13 +184,28 @@ pub fn get_best_binary_from_release(
         _ => vec![],
     };
 
+    // Define wrong architecture patterns for penalties
+    let wrong_arch_patterns: &[&str] = match arch {
+        "x86_64" => &["aarch64", "arm64", "armv7", "armhf", "i386", "i686"],
+        "aarch64" => &["x86_64", "amd64", "i386", "i686"],
+        _ => &[],
+    };
+
+    // Define wrong OS patterns for penalties
+    let wrong_os_patterns: &[&str] = match os {
+        "linux" => &["windows", "win32", "win64", "darwin", "macos", "apple"],
+        "windows" => &["linux", "darwin", "macos", "apple"],
+        "macos" => &["linux", "windows", "win32", "win64"],
+        _ => &[],
+    };
+
     // Find best matching asset
     let mut best_asset: Option<&GitHubAsset> = None;
-    let mut best_score = 0;
+    let mut best_score: i32 = i32::MIN;
 
     for asset in &release.assets {
         let name_lower = asset.name.to_lowercase();
-        let mut score = 0;
+        let mut score: i32 = 0;
 
         // Prefer executable-like files
         if name_lower.ends_with(".exe")
@@ -212,6 +227,22 @@ pub fn get_best_binary_from_release(
         for keyword in &arch_keywords {
             if name_lower.contains(keyword) {
                 score += 3;
+            }
+        }
+
+        // Penalty for wrong architecture
+        for pattern in wrong_arch_patterns {
+            if name_lower.contains(pattern) {
+                score -= 100;
+                break;
+            }
+        }
+
+        // Penalty for wrong OS
+        for pattern in wrong_os_patterns {
+            if name_lower.contains(pattern) {
+                score -= 100;
+                break;
             }
         }
 
@@ -273,6 +304,35 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
         for (i, pattern) in arch_patterns.iter().enumerate() {
             if name_lower.contains(pattern) {
                 score += 50 - (i as i32 * 5); // First match gets 50, second gets 45, etc.
+                break;
+            }
+        }
+
+        // Penalty for wrong architecture
+        let wrong_arch_patterns: &[&str] = match arch {
+            "x86_64" => &["aarch64", "arm64", "armv7", "armhf", "i386", "i686"],
+            "aarch64" => &["x86_64", "amd64", "i386", "i686"],
+            "x86" => &["x86_64", "amd64", "aarch64", "arm64"],
+            "arm" => &["x86_64", "amd64", "aarch64", "arm64", "i386", "i686"],
+            _ => &[],
+        };
+        for pattern in wrong_arch_patterns {
+            if name_lower.contains(pattern) {
+                score -= 100; // Strong penalty for wrong architecture
+                break;
+            }
+        }
+
+        // Penalty for wrong OS
+        let wrong_os_patterns: &[&str] = match os {
+            "linux" => &["windows", "win32", "win64", "darwin", "macos", "apple"],
+            "windows" => &["linux", "darwin", "macos", "apple"],
+            "macos" => &["linux", "windows", "win32", "win64"],
+            _ => &[],
+        };
+        for pattern in wrong_os_patterns {
+            if name_lower.contains(pattern) {
+                score -= 100; // Strong penalty for wrong OS
                 break;
             }
         }
