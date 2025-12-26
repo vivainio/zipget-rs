@@ -15,6 +15,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  get-version:
+    name: Get Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Get version from tag
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -67,7 +84,7 @@ jobs:
 
   build:
     name: Build
-    needs: [check, test]
+    needs: [check, test, get-version]
     strategy:
       matrix:
         include:
@@ -107,6 +124,8 @@ jobs:
 
       - name: Build Binary
         run: cargo build --verbose --locked --release --target ${{ matrix.target }}
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
 
       - name: Build Archive (Unix)
         shell: bash
@@ -136,16 +155,13 @@ jobs:
 
   publish:
     name: Publish
-    needs: build
+    needs: [build, get-version]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -154,6 +170,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          name: v${{ needs.get-version.outputs.version }}
           files: artifacts/**/*
           generate_release_notes: true
 
