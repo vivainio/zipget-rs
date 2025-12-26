@@ -373,7 +373,7 @@ lock = { sha = "8400fd7b673be8117211a0fa47f3f96e832f9569637ba5b3af0e18e9b3988095
             
             # Test with bad SHA hash to ensure verification catches errors
             bad_sha_content = test_recipe_content.replace(
-                "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7",
+                "8400fd7b673be8117211a0fa47f3f96e832f9569637ba5b3af0e18e9b3988095",
                 "badbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbadbad"
             )
             
