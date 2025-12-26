@@ -10,6 +10,7 @@ pub fn run() -> Result<()> {
         Commands::Recipe {
             file,
             tags,
+            exclude,
             upgrade,
             profile,
             lock,
@@ -19,6 +20,7 @@ pub fn run() -> Result<()> {
             crate::recipe::process_recipe(
                 &file,
                 &tags,
+                &exclude,
                 upgrade,
                 profile.as_deref(),
                 lock,

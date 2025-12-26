@@ -28,6 +28,7 @@ pub struct ProcessResult {
 pub fn process_recipe(
     file_path: &str,
     tags: &[String],
+    exclude: &[String],
     upgrade: bool,
     profile: Option<&str>,
     lock: bool,
@@ -66,20 +67,25 @@ pub fn process_recipe(
 
     if dry {
         // Dry run mode - show expanded values without downloading
-        return dry_run_recipe(&recipe, tags, &var_ctx);
+        return dry_run_recipe(&recipe, tags, exclude, &var_ctx);
     }
 
     if lock {
         // Lock mode - process sequentially and update file
-        process_recipe_for_lock(file_path, &recipe, tags, profile, &var_ctx)
+        process_recipe_for_lock(file_path, &recipe, tags, exclude, profile, &var_ctx)
     } else {
         // Normal mode - process items
-        process_recipe_items(&recipe, tags, profile, &var_ctx)
+        process_recipe_items(&recipe, tags, exclude, profile, &var_ctx)
     }
 }
 
-/// Check if section name matches any of the provided tags
-fn matches_tags(section_name: &str, tags: &[String]) -> bool {
+/// Check if section name matches inclusion tags and doesn't match exclusion tags
+fn matches_tags(section_name: &str, tags: &[String], exclude: &[String]) -> bool {
+    // First check exclusions - if any exclusion matches, return false
+    if exclude.iter().any(|ex| section_name.contains(ex)) {
+        return false;
+    }
+    // Then check inclusions - if no tags specified, include all; otherwise must match one
     if tags.is_empty() {
         return true;
     }
@@ -87,12 +93,12 @@ fn matches_tags(section_name: &str, tags: &[String]) -> bool {
 }
 
 /// Dry run mode - show how variables would be expanded
-fn dry_run_recipe(recipe: &Recipe, tags: &[String], var_ctx: &VarContext) -> Result<()> {
+fn dry_run_recipe(recipe: &Recipe, tags: &[String], exclude: &[String], var_ctx: &VarContext) -> Result<()> {
     // Filter items by tags if specified
     let items_to_process: Vec<(&String, &FetchItem)> = recipe
         .items
         .iter()
-        .filter(|(k, _)| matches_tags(k, tags))
+        .filter(|(k, _)| matches_tags(k, tags, exclude))
         .collect();
 
     if items_to_process.is_empty() {
@@ -148,6 +154,7 @@ fn dry_run_recipe(recipe: &Recipe, tags: &[String], var_ctx: &VarContext) -> Res
 fn process_recipe_items(
     recipe: &Recipe,
     tags: &[String],
+    exclude: &[String],
     profile: Option<&str>,
     var_ctx: &VarContext,
 ) -> Result<()> {
@@ -155,7 +162,7 @@ fn process_recipe_items(
     let items_to_process: Vec<(&String, &FetchItem)> = recipe
         .items
         .iter()
-        .filter(|(k, _)| matches_tags(k, tags))
+        .filter(|(k, _)| matches_tags(k, tags, exclude))
         .collect();
 
     if items_to_process.is_empty() {
@@ -318,6 +325,7 @@ fn process_recipe_for_lock(
     file_path: &str,
     recipe: &Recipe,
     tags: &[String],
+    exclude: &[String],
     profile: Option<&str>,
     var_ctx: &VarContext,
 ) -> Result<()> {
@@ -328,7 +336,7 @@ fn process_recipe_for_lock(
     let sections_to_process: Vec<(String, FetchItem)> = recipe
         .items
         .iter()
-        .filter(|(section_name, _)| matches_tags(section_name, tags))
+        .filter(|(section_name, _)| matches_tags(section_name, tags, exclude))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 

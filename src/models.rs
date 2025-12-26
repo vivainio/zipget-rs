@@ -30,6 +30,9 @@ pub enum Commands {
         file: String,
         /// Optional tags to filter items by (can specify multiple)
         tags: Vec<String>,
+        /// Tags to exclude from processing (can specify multiple)
+        #[arg(short = 'x', long = "exclude")]
+        exclude: Vec<String>,
         /// Upgrade all GitHub releases to latest versions
         #[arg(long)]
         upgrade: bool,
