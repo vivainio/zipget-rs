@@ -2,7 +2,7 @@
 # Tests --lock parameter and SHA verification functionality
 
 [lock-test-http]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+url = "https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip"
 unzip_to = "./test-output/lock-http"
 save_as = "./test-downloads/lock-http.zip"
 

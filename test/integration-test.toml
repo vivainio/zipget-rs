@@ -17,12 +17,12 @@ unzip_to = "./test-output/unxml-windows"
 save_as = "./test-downloads/unxml-windows.zip"
 
 [small-test-zip]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+url = "https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip"
 unzip_to = "./test-output/small-zip"
 save_as = "./test-downloads/small-test.zip"
 
 [medium-test-zip]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_100KB.zip"
+url = "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-i686-pc-windows-msvc.zip"
 unzip_to = "./test-output/medium-zip"
 save_as = "./test-downloads/medium-test.zip"
 

@@ -2,7 +2,7 @@
 # Tests that --lock with specific item only locks that item
 
 [selective-item-url]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+url = "https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip"
 save_as = "./test-downloads/selective-url.zip"
 
 [selective-item-github]
@@ -10,5 +10,5 @@ github = { repo = "vivainio/unxml-rs", tag = "v0.1.1" }
 save_as = "./test-downloads/selective-github.zip"
 
 [selective-item-other]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_100KB.zip"
+url = "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-i686-pc-windows-msvc.zip"
 save_as = "./test-downloads/selective-other.zip"

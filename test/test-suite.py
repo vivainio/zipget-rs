@@ -130,8 +130,8 @@ class ZipgetTestSuite:
     def test_file_sizes(self) -> TestResult:
         """Test that downloaded files have reasonable sizes"""
         size_checks = [
-            ("small-test.zip", 90000, 110000),  # ~100KB (actual size from thetestdata.com)
-            ("medium-test.zip", 950000, 1100000),  # ~1MB (actual size from thetestdata.com)
+            ("small-test.zip", 300000, 320000),  # ~307KB (unxml-rs windows release)
+            ("medium-test.zip", 1150000, 1250000),  # ~1.2MB (fd windows release)
         ]
         
         failed_checks = []
@@ -336,9 +336,9 @@ class ZipgetTestSuite:
         
         # Create a test recipe with known SHA hash
         test_recipe_content = '''[sha-test]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+url = "https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip"
 save_as = "./test-downloads/sha-verify-test.zip"
-lock = { sha = "fe4759a0a3dfb431e78a9f803f1332e1507eea1a01f7e61e74d2787eccd9f1f7" }
+lock = { sha = "8400fd7b673be8117211a0fa47f3f96e832f9569637ba5b3af0e18e9b3988095" }
 '''
         
         sha_test_recipe = self.test_dir / "sha-test.toml"

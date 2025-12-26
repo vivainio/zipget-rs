@@ -2,7 +2,7 @@
 # Tests core functionality that works reliably
 
 [http-zip-test]
-url = "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip"
+url = "https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip"
 unzip_to = "./test-output/http-zip"
 save_as = "./test-downloads/http-test.zip"
 

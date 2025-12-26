@@ -224,10 +224,10 @@ class ZipgetCITestSuite:
         
         test_file = "ci-http-test.zip"
         cmd = [
-            str(self.zipget_binary), 
-            "fetch", 
-            "https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip",
-            "--save-as", 
+            str(self.zipget_binary),
+            "fetch",
+            "https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip",
+            "--save-as",
             test_file
         ]
         

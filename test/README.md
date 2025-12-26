@@ -17,7 +17,7 @@ This directory contains integration tests for the zipget-rs project.
 The integration tests cover:
 
 - **GitHub Releases**: Download from vivainio/unxml-rs (latest and specific versions)
-- **HTTP Downloads**: Download test ZIP files from thetestdata.com
+- **HTTP Downloads**: Download test ZIP files from GitHub releases (direct URLs)
 - **Asset Detection**: Automatic platform-specific asset selection
 - **Extraction**: ZIP and tar.gz archive extraction
 - **File Filtering**: Using glob patterns to extract specific files
@@ -127,7 +127,7 @@ If downloads fail due to network issues, you can:
 1. Check your internet connection
 2. Verify the test endpoints are accessible:
    ```bash
-   curl -I https://thetestdata.com/samplefiles/zip/Thetestdata_ZIP_10KB.zip
+   curl -I https://github.com/vivainio/unxml-rs/releases/download/v0.1.1/unxml-windows-x86_64.zip
    curl -I https://api.github.com/repos/vivainio/unxml-rs/releases/latest
    ```
 
