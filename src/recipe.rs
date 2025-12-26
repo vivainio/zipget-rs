@@ -185,14 +185,13 @@ fn process_recipe_items(
     let mut results: Vec<(String, ProcessResult)> = Vec::new();
 
     for (section_name, fetch_item) in items_to_process {
-        println!("Processing {section_name}...");
         // Apply variable substitution to the fetch item
         let substituted_item = substitute_fetch_item(fetch_item, var_ctx)
             .with_context(|| format!("Failed to substitute variables in {section_name}"))?;
-        match process_fetch_item(&substituted_item, profile) {
+        match process_fetch_item(&substituted_item, profile, section_name) {
             Ok(result) => results.push((section_name.clone(), result)),
             Err(e) => {
-                println!("Error processing {section_name}: {e}");
+                println!("[{section_name}] Error: {e}");
                 errors.push(format!("{section_name}: {e}"));
             }
         }
@@ -492,6 +491,7 @@ fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
 pub fn process_fetch_item(
     fetch_item: &FetchItem,
     global_profile: Option<&str>,
+    tag: &str,
 ) -> Result<ProcessResult> {
     let mut result = ProcessResult::default();
     let cache_dir = get_cache_dir()?;
@@ -502,26 +502,26 @@ pub fn process_fetch_item(
         .and_then(|l| l.download_url.as_ref())
     {
         // Use stored direct download URL (from lock file) - skip GitHub API
-        println!("Using stored download URL: {stored_url}");
+        println!("[{tag}] Using stored download URL: {stored_url}");
         let filename = get_filename_from_url(stored_url);
         (stored_url.clone(), filename)
     } else if let Some(url) = &fetch_item.url {
-        println!("Processing URL: {url}");
+        println!("[{tag}] URL: {url}");
         let filename = get_filename_from_url(url);
         (url.clone(), filename)
     } else if let Some(github) = &fetch_item.github {
-        println!("Processing GitHub repo: {}", github.repo);
+        println!("[{tag}] GitHub: {}", github.repo);
 
         let (download_url, filename) = if let Some(asset_name) = &github.asset {
             // User specified asset name - use the existing logic
-            println!("Using specified asset: {asset_name}");
+            println!("[{tag}] Asset: {asset_name}");
             let github_url =
                 get_github_release_url(&github.repo, asset_name, github.tag.as_deref())?;
             let filename = get_filename_from_url(&github_url);
             (github_url, filename)
         } else {
             // No asset specified - use intelligent asset detection
-            println!("No asset specified, analyzing available assets...");
+            println!("[{tag}] No asset specified, analyzing available assets...");
             let (release, best_asset) =
                 get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
 
@@ -537,7 +537,7 @@ pub fn process_fetch_item(
                     )
                 })?;
 
-            println!("Selected asset: {} ({} bytes)", asset.name, asset.size);
+            println!("[{tag}] Selected asset: {} ({} bytes)", asset.name, asset.size);
             let filename = get_filename_from_url(&asset.browser_download_url);
             (asset.browser_download_url.clone(), filename)
         };
@@ -557,10 +557,10 @@ pub fn process_fetch_item(
     let profile = fetch_item.profile.as_deref().or(global_profile);
 
     let file_path = if cached_file_path.exists() {
-        println!("Found cached file: {}", cached_file_path.display());
+        println!("[{tag}] Cached: {}", cached_file_path.display());
         cached_file_path
     } else {
-        println!("Downloading: {download_url}");
+        println!("[{tag}] Downloading: {download_url}");
         http::download_file(&download_url, &cached_file_path, profile)?;
         cached_file_path
     };
@@ -575,15 +575,15 @@ pub fn process_fetch_item(
 
         fs::copy(&file_path, save_path)
             .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
-        println!("Saved as: {save_as}");
+        println!("[{tag}] Saved as: {save_as}");
         result.saved_file = Some(save_as.clone());
     }
 
     // Verify SHA if specified in lock structure
     if let Some(expected_sha) = fetch_item.lock.as_ref().and_then(|l| l.sha.as_ref()) {
-        println!("Verifying SHA-256...");
+        println!("[{tag}] Verifying SHA-256...");
         if verify_sha256(&file_path, expected_sha)? {
-            println!("SHA-256 verification passed");
+            println!("[{tag}] SHA-256 verification passed");
         } else {
             return Err(anyhow::anyhow!(
                 "SHA-256 verification failed for downloaded file"
@@ -597,7 +597,7 @@ pub fn process_fetch_item(
 
     // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
-        println!("Extracting to: {unzip_to}");
+        println!("[{tag}] Extracting to: {unzip_to}");
         let extracted_files = extract_archive(&file_path, unzip_to, fetch_item.files.as_deref())?;
 
         // Set executable permission if requested (Unix only)
