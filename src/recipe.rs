@@ -3,7 +3,7 @@ use crate::cache::get_cache_dir;
 use crate::crypto::{compute_sha256, compute_sha256_from_bytes, verify_sha256};
 use crate::download::http;
 use crate::models::{
-    FetchItem, GitHubAsset, GitHubFetch, GitHubRelease, LockInfo, LockResult, Recipe,
+    FetchItem, GitHubAsset, GitHubFetch, GitHubRelease, LockInfo, LockResult, Recipe, RecipeOptions,
 };
 use crate::utils::get_filename_from_url;
 use crate::vars::VarContext;
@@ -25,17 +25,8 @@ pub struct ProcessResult {
 }
 
 /// Process a recipe file with the given parameters
-pub fn process_recipe(
-    file_path: &str,
-    tags: &[String],
-    exclude: &[String],
-    upgrade: bool,
-    profile: Option<&str>,
-    lock: bool,
-    var_overrides: &[String],
-    dry: bool,
-) -> Result<()> {
-    if upgrade {
+pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
+    if opts.upgrade {
         return upgrade_recipe(file_path);
     }
 
@@ -47,16 +38,17 @@ pub fn process_recipe(
 
     // Create variable context with recipe vars and CLI overrides
     let recipe_path = Path::new(file_path);
-    let var_ctx = VarContext::new(&recipe.vars, var_overrides, Some(recipe_path))
+    let var_ctx = VarContext::new(&recipe.vars, opts.var_overrides, Some(recipe_path))
         .with_context(|| "Failed to create variable context")?;
 
     // Show active variables if any custom vars are defined
-    if !recipe.vars.is_empty() || !var_overrides.is_empty() {
+    if !recipe.vars.is_empty() || !opts.var_overrides.is_empty() {
         println!("Active variables:");
         for (key, value) in var_ctx.vars() {
             // Only show non-builtin vars or overridden ones
             if recipe.vars.contains_key(key)
-                || var_overrides
+                || opts
+                    .var_overrides
                     .iter()
                     .any(|o| o.starts_with(&format!("{key}=")))
             {
@@ -65,17 +57,24 @@ pub fn process_recipe(
         }
     }
 
-    if dry {
+    if opts.dry {
         // Dry run mode - show expanded values without downloading
-        return dry_run_recipe(&recipe, tags, exclude, &var_ctx);
+        return dry_run_recipe(&recipe, opts.tags, opts.exclude, &var_ctx);
     }
 
-    if lock {
+    if opts.lock {
         // Lock mode - process sequentially and update file
-        process_recipe_for_lock(file_path, &recipe, tags, exclude, profile, &var_ctx)
+        process_recipe_for_lock(
+            file_path,
+            &recipe,
+            opts.tags,
+            opts.exclude,
+            opts.profile,
+            &var_ctx,
+        )
     } else {
         // Normal mode - process items
-        process_recipe_items(&recipe, tags, exclude, profile, &var_ctx)
+        process_recipe_items(&recipe, opts.tags, opts.exclude, opts.profile, &var_ctx)
     }
 }
 
@@ -93,7 +92,12 @@ fn matches_tags(section_name: &str, tags: &[String], exclude: &[String]) -> bool
 }
 
 /// Dry run mode - show how variables would be expanded
-fn dry_run_recipe(recipe: &Recipe, tags: &[String], exclude: &[String], var_ctx: &VarContext) -> Result<()> {
+fn dry_run_recipe(
+    recipe: &Recipe,
+    tags: &[String],
+    exclude: &[String],
+    var_ctx: &VarContext,
+) -> Result<()> {
     // Filter items by tags if specified
     let items_to_process: Vec<(&String, &FetchItem)> = recipe
         .items
@@ -545,7 +549,10 @@ pub fn process_fetch_item(
                     )
                 })?;
 
-            println!("[{tag}] Selected asset: {} ({} bytes)", asset.name, asset.size);
+            println!(
+                "[{tag}] Selected asset: {} ({} bytes)",
+                asset.name, asset.size
+            );
             let filename = get_filename_from_url(&asset.browser_download_url);
             (asset.browser_download_url.clone(), filename)
         };

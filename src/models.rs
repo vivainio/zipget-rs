@@ -13,6 +13,18 @@ pub struct Recipe {
     pub items: HashMap<String, FetchItem>,
 }
 
+/// Options for processing a recipe
+#[derive(Debug, Default)]
+pub struct RecipeOptions<'a> {
+    pub tags: &'a [String],
+    pub exclude: &'a [String],
+    pub upgrade: bool,
+    pub profile: Option<&'a str>,
+    pub lock: bool,
+    pub var_overrides: &'a [String],
+    pub dry: bool,
+}
+
 /// Command line arguments
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

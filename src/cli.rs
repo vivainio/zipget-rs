@@ -1,4 +1,4 @@
-use crate::models::{Args, Commands};
+use crate::models::{Args, Commands, RecipeOptions};
 use anyhow::Result;
 use clap::Parser;
 
@@ -17,16 +17,16 @@ pub fn run() -> Result<()> {
             var_overrides,
             dry,
         } => {
-            crate::recipe::process_recipe(
-                &file,
-                &tags,
-                &exclude,
+            let opts = RecipeOptions {
+                tags: &tags,
+                exclude: &exclude,
                 upgrade,
-                profile.as_deref(),
+                profile: profile.as_deref(),
                 lock,
-                &var_overrides,
+                var_overrides: &var_overrides,
                 dry,
-            )?;
+            };
+            crate::recipe::process_recipe(&file, &opts)?;
         }
         Commands::Github {
             repo,
