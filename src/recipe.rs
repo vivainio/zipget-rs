@@ -9,7 +9,20 @@ use crate::utils::get_filename_from_url;
 use crate::vars::VarContext;
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Result of processing a single fetch item
+#[derive(Debug, Default)]
+pub struct ProcessResult {
+    /// Files that were extracted
+    pub extracted_files: Vec<PathBuf>,
+    /// Directory files were extracted to
+    pub extract_dir: Option<String>,
+    /// File saved via save_as
+    pub saved_file: Option<String>,
+    /// Computed SHA-256 hash
+    pub sha: Option<String>,
+}
 
 /// Process a recipe file with the given parameters
 pub fn process_recipe(
@@ -169,17 +182,24 @@ fn process_recipe_items(
 
     // Process each fetch item (sequentially for now, could be made concurrent later)
     let mut errors = Vec::new();
+    let mut results: Vec<(String, ProcessResult)> = Vec::new();
 
     for (section_name, fetch_item) in items_to_process {
         println!("Processing {section_name}...");
         // Apply variable substitution to the fetch item
         let substituted_item = substitute_fetch_item(fetch_item, var_ctx)
             .with_context(|| format!("Failed to substitute variables in {section_name}"))?;
-        if let Err(e) = process_fetch_item(&substituted_item, profile) {
-            println!("Error processing {section_name}: {e}");
-            errors.push(format!("{section_name}: {e}"));
+        match process_fetch_item(&substituted_item, profile) {
+            Ok(result) => results.push((section_name.clone(), result)),
+            Err(e) => {
+                println!("Error processing {section_name}: {e}");
+                errors.push(format!("{section_name}: {e}"));
+            }
         }
     }
+
+    // Print summary of extracted files
+    print_summary(&results);
 
     if !errors.is_empty() {
         return Err(anyhow::anyhow!(
@@ -189,6 +209,56 @@ fn process_recipe_items(
     }
 
     Ok(())
+}
+
+/// Print a summary of processed items
+fn print_summary(results: &[(String, ProcessResult)]) {
+    if results.is_empty() {
+        return;
+    }
+
+    // Group files by destination directory
+    let mut by_dir: std::collections::HashMap<String, Vec<(String, PathBuf)>> =
+        std::collections::HashMap::new();
+    let mut saved_files: Vec<(String, String)> = Vec::new();
+
+    for (section_name, result) in results {
+        if let Some(saved) = &result.saved_file {
+            saved_files.push((section_name.clone(), saved.clone()));
+        }
+        if let Some(dir) = &result.extract_dir {
+            for file in &result.extracted_files {
+                by_dir
+                    .entry(dir.clone())
+                    .or_default()
+                    .push((section_name.clone(), file.clone()));
+            }
+        }
+    }
+
+    // Only print if there's something to show
+    if by_dir.is_empty() && saved_files.is_empty() {
+        return;
+    }
+
+    println!("\n--- Summary ---");
+
+    // Print extracted files grouped by directory
+    for (dir, files) in &by_dir {
+        println!("\n{}:", dir);
+        for (section, file) in files {
+            let filename = file.file_name().unwrap_or_default().to_string_lossy();
+            println!("  {} ({})", filename, section);
+        }
+    }
+
+    // Print saved files
+    if !saved_files.is_empty() {
+        println!("\nSaved files:");
+        for (section, path) in &saved_files {
+            println!("  {} ({})", path, section);
+        }
+    }
 }
 
 /// Apply variable substitution to a FetchItem
@@ -422,7 +492,8 @@ fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
 pub fn process_fetch_item(
     fetch_item: &FetchItem,
     global_profile: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<ProcessResult> {
+    let mut result = ProcessResult::default();
     let cache_dir = get_cache_dir()?;
 
     let (download_url, filename) = if let Some(stored_url) = fetch_item
@@ -505,6 +576,7 @@ pub fn process_fetch_item(
         fs::copy(&file_path, save_path)
             .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
         println!("Saved as: {save_as}");
+        result.saved_file = Some(save_as.clone());
     }
 
     // Verify SHA if specified in lock structure
@@ -521,6 +593,7 @@ pub fn process_fetch_item(
 
     // Compute SHA for lock file generation (always compute, return for potential use)
     let computed_sha = compute_sha256(&file_path)?;
+    result.sha = Some(computed_sha);
 
     // Extract the archive if unzip_to is specified
     if let Some(unzip_to) = &fetch_item.unzip_to {
@@ -532,12 +605,13 @@ pub fn process_fetch_item(
         if fetch_item.executable == Some(true) {
             set_executable_on_files(&extracted_files)?;
         }
+
+        result.extract_dir = Some(unzip_to.clone());
+        result.extracted_files = extracted_files;
     }
 
-    Ok(Some(computed_sha))
+    Ok(result)
 }
-
-use std::path::PathBuf;
 
 /// Extract archive based on file extension, returns list of extracted files
 fn extract_archive(
