@@ -206,6 +206,11 @@ pub fn install_package(
             .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
         let install_path = local_bin.join(filename);
 
+        // Remove existing file first to avoid "Text file busy" error when updating a running executable
+        if install_path.exists() {
+            fs::remove_file(&install_path).context("Failed to remove existing executable")?;
+        }
+
         fs::copy(&exe_to_install, &install_path)
             .context("Failed to copy executable to ~/.local/bin")?;
 
