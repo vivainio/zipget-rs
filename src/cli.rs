@@ -100,13 +100,15 @@ pub fn run() -> Result<()> {
             );
             crate::install::executable::install_package(
                 &source,
-                binary.as_deref(),
-                tag.as_deref(),
-                files.as_deref(),
-                profile.as_deref(),
-                executable.as_deref(),
-                None, // install_as - use default (strip platform suffix)
-                no_shim,
+                crate::install::executable::InstallOptions {
+                    binary: binary.as_deref(),
+                    tag: tag.as_deref(),
+                    files_pattern: files.as_deref(),
+                    profile: profile.as_deref(),
+                    executable: executable.as_deref(),
+                    no_shim,
+                    ..Default::default()
+                },
             )?;
         }
         Commands::Shim { target_executable } => {

@@ -147,8 +147,12 @@ fn extract_archive_with_options(
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o755);
-            fs::set_permissions(&dest_path, perms)
-                .with_context(|| format!("Failed to set executable permissions on: {}", dest_path.display()))?;
+            fs::set_permissions(&dest_path, perms).with_context(|| {
+                format!(
+                    "Failed to set executable permissions on: {}",
+                    dest_path.display()
+                )
+            })?;
         }
 
         println!("Copied direct binary to: {}", dest_path.display());

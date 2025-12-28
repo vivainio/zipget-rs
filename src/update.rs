@@ -1,4 +1,4 @@
-use crate::install::executable::install_package;
+use crate::install::executable::{InstallOptions, install_package};
 use anyhow::Result;
 
 const REPO: &str = "vivainio/zipget-rs";
@@ -8,12 +8,10 @@ pub fn self_update() -> Result<()> {
     println!("Updating zipget from {REPO}...");
     install_package(
         REPO,
-        None,           // auto-detect binary
-        None,           // latest tag
-        None,           // no files pattern
-        None,           // no AWS profile
-        Some("zipget"), // select zipget executable from package
-        Some("zipget"), // install as "zipget"
-        false,          // use default shim behavior
+        InstallOptions {
+            executable: Some("zipget"),
+            install_as: Some("zipget"),
+            ..Default::default()
+        },
     )
 }

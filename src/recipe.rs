@@ -640,10 +640,7 @@ fn extract_archive(
     extract_to: &str,
     file_pattern: Option<&str>,
 ) -> Result<Vec<PathBuf>> {
-    let filename = file_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let filename = file_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
         zip::extract_zip(file_path, extract_to, file_pattern)

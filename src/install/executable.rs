@@ -36,10 +36,8 @@ pub fn strip_platform_suffix(name: &str) -> String {
         // Operating systems
         "linux", "windows", "win", "win32", "win64", "macos", "darwin", "apple",
         // Architectures
-        "x64", "x86_64", "amd64", "arm64", "aarch64", "i386", "i686",
-        // Libc variants
-        "gnu", "musl", "msvc",
-        // Other qualifiers
+        "x64", "x86_64", "amd64", "arm64", "aarch64", "i386", "i686", // Libc variants
+        "gnu", "musl", "msvc", // Other qualifiers
         "unknown", "pc",
     ];
 
@@ -98,17 +96,27 @@ pub fn find_executables(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(executables)
 }
 
+/// Options for installing a package
+#[derive(Default)]
+pub struct InstallOptions<'a> {
+    /// Name of the binary to download from GitHub release assets
+    pub binary: Option<&'a str>,
+    /// Tag to download specific GitHub release
+    pub tag: Option<&'a str>,
+    /// Glob pattern for files to extract from archives
+    pub files_pattern: Option<&'a str>,
+    /// AWS profile for S3 downloads
+    pub profile: Option<&'a str>,
+    /// Executable name to install (if multiple in package)
+    pub executable: Option<&'a str>,
+    /// Name to install the binary as (defaults to stripping platform suffix)
+    pub install_as: Option<&'a str>,
+    /// Skip shim creation on Windows
+    pub no_shim: bool,
+}
+
 /// Install a package (executables) to the system
-pub fn install_package(
-    source: &str,
-    binary: Option<&str>,
-    tag: Option<&str>,
-    files_pattern: Option<&str>,
-    profile: Option<&str>,
-    executable: Option<&str>,
-    install_as: Option<&str>,
-    no_shim: bool,
-) -> Result<()> {
+pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
     use crate::archive::utils as archive_utils;
     use crate::download::github;
     #[cfg(windows)]
@@ -116,7 +124,7 @@ pub fn install_package(
 
     // Note: --no-shim is silently accepted on Unix since direct installation
     // is the only behavior (shims are Windows-only)
-    let _ = no_shim; // Suppress unused warning on Unix
+    let _ = opts.no_shim; // Suppress unused warning on Unix
 
     // Create temporary directory for extraction
     let temp_base = std::env::temp_dir();
@@ -153,11 +161,11 @@ pub fn install_package(
         println!("Downloading from GitHub: {repo_path}");
         github::fetch_github_release(
             &repo_path,
-            binary,
+            opts.binary,
             None,
-            tag,
+            opts.tag,
             Some(temp_path.to_str().unwrap()),
-            files_pattern,
+            opts.files_pattern,
         )?;
     } else {
         // Direct URL download
@@ -165,8 +173,8 @@ pub fn install_package(
             source,
             None,
             Some(temp_path.to_str().unwrap()),
-            files_pattern,
-            profile,
+            opts.files_pattern,
+            opts.profile,
         )?;
     }
 
@@ -183,7 +191,7 @@ pub fn install_package(
     }
 
     // Select which executable to install
-    let exe_to_install = if let Some(exe_name) = executable {
+    let exe_to_install = if let Some(exe_name) = opts.executable {
         executables
             .iter()
             .find(|p| {
@@ -204,7 +212,7 @@ pub fn install_package(
 
     #[cfg(windows)]
     {
-        if no_shim {
+        if opts.no_shim {
             // Copy to ~/.local/bin
             let local_bin = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
@@ -219,7 +227,7 @@ pub fn install_package(
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
 
-            let install_filename = if let Some(name) = install_as {
+            let install_filename = if let Some(name) = opts.install_as {
                 name.to_string()
             } else {
                 strip_platform_suffix(original_filename)
@@ -265,7 +273,7 @@ pub fn install_package(
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
 
-        let install_filename = if let Some(name) = install_as {
+        let install_filename = if let Some(name) = opts.install_as {
             name.to_string()
         } else {
             strip_platform_suffix(original_filename)
@@ -443,7 +451,10 @@ mod tests {
 
     #[test]
     fn test_strip_platform_suffix_windows() {
-        assert_eq!(strip_platform_suffix("zipget-windows-x64.exe"), "zipget.exe");
+        assert_eq!(
+            strip_platform_suffix("zipget-windows-x64.exe"),
+            "zipget.exe"
+        );
         assert_eq!(strip_platform_suffix("tool-win-amd64.exe"), "tool.exe");
         assert_eq!(strip_platform_suffix("app-win64.exe"), "app.exe");
     }
@@ -459,7 +470,10 @@ mod tests {
     fn test_strip_platform_suffix_triple() {
         assert_eq!(strip_platform_suffix("rg-x86_64-unknown-linux-gnu"), "rg");
         assert_eq!(strip_platform_suffix("fd-x86_64-apple-darwin"), "fd");
-        assert_eq!(strip_platform_suffix("bat-x86_64-pc-windows-msvc.exe"), "bat.exe");
+        assert_eq!(
+            strip_platform_suffix("bat-x86_64-pc-windows-msvc.exe"),
+            "bat.exe"
+        );
     }
 
     #[test]
