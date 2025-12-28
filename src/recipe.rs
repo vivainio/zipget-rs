@@ -592,6 +592,12 @@ pub fn process_fetch_item(
             .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
         println!("[{tag}] Saved as: {save_as}");
         result.saved_file = Some(save_as.clone());
+
+        // Set executable permission if requested (Unix only)
+        #[cfg(unix)]
+        if fetch_item.executable == Some(true) {
+            set_executable_on_files(&[save_path.to_path_buf()])?;
+        }
     }
 
     // Verify SHA if specified in lock structure

@@ -90,19 +90,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: zipget-linux-x64.tar.gz
+            name: zipget-linux-x64
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: zipget-linux-x64-musl.tar.gz
+            name: zipget-linux-x64-musl
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: zipget-macos-x64.tar.gz
+            name: zipget-macos-x64
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: zipget-macos-arm64.tar.gz
+            name: zipget-macos-arm64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: zipget-windows-x64.zip
+            name: zipget-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -127,27 +127,20 @@ jobs:
         env:
           VERSION: ${{ needs.get-version.outputs.version }}
 
-      - name: Build Archive (Unix)
+      - name: Prepare Binary (Unix)
         shell: bash
         run: |
-          binary_name="zipget"          
-          dirname="zipget-${{ matrix.target }}"
-          mkdir "$dirname"
-          mv "target/${{ matrix.target }}/release/$binary_name" "$dirname"
-          tar -czf "${{ matrix.name }}" "$dirname"
+          cp "target/${{ matrix.target }}/release/zipget" "${{ matrix.name }}"
+          chmod +x "${{ matrix.name }}"
         if: matrix.os != 'windows-latest'
 
-      - name: Build Archive (Windows)
+      - name: Prepare Binary (Windows)
         shell: pwsh
         run: |
-          $binary_name = "zipget.exe"
-          $dirname = "zipget-${{ matrix.target }}"
-          New-Item -ItemType Directory -Path $dirname
-          Move-Item "target/${{ matrix.target }}/release/$binary_name" "$dirname/"
-          Compress-Archive -Path $dirname -DestinationPath "${{ matrix.name }}"
+          Copy-Item "target/${{ matrix.target }}/release/zipget.exe" "${{ matrix.name }}"
         if: matrix.os == 'windows-latest'
 
-      - name: Upload Archive
+      - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
