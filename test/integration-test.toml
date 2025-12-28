@@ -1,6 +1,10 @@
 # Integration Test Recipe for zipget-rs
 # Tests GitHub releases, HTTP downloads, and various archive formats
 
+[zipget-self]
+github = { repo = "vivainio/zipget-rs" }
+save_as = "./test-downloads/zipget"
+
 [unxml-latest]
 github = { repo = "vivainio/unxml-rs" }
 unzip_to = "./test-output/unxml-latest"

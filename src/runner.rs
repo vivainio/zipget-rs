@@ -151,7 +151,10 @@ pub fn fetch_direct_url(
         } else if filename.ends_with(".tar.zst") {
             let _ = tar::extract_tar_zst(&local_path, extract_dir, files)?;
         } else {
-            println!("Warning: Unknown archive format, skipping extraction");
+            return Err(anyhow::anyhow!(
+                "Cannot extract '{}': not a supported archive format (zip, tar.gz, tar.zst)",
+                filename
+            ));
         }
     }
 

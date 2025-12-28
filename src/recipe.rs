@@ -640,26 +640,23 @@ fn extract_archive(
     extract_to: &str,
     file_pattern: Option<&str>,
 ) -> Result<Vec<PathBuf>> {
+    let filename = file_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
     if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
         zip::extract_zip(file_path, extract_to, file_pattern)
-    } else if file_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .ends_with(".tar.gz")
-        || file_path.extension().and_then(|s| s.to_str()) == Some("tgz")
-    {
+    } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
         tar::extract_tar_gz(file_path, extract_to, file_pattern)
-    } else if file_path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .ends_with(".tar.zst")
-    {
+    } else if filename.ends_with(".tar.zst") {
         tar::extract_tar_zst(file_path, extract_to, file_pattern)
     } else {
-        println!("Warning: Unknown archive format, skipping extraction");
-        Ok(Vec::new())
+        Err(anyhow::anyhow!(
+            "Cannot extract '{}': not a supported archive format (zip, tar.gz, tar.zst). \
+             Remove 'unzip_to' for direct binary downloads.",
+            filename
+        ))
     }
 }
 
