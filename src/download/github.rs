@@ -7,6 +7,39 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
+/// Fetch GitHub release info from API with optional token authentication
+fn fetch_release_info(repo: &str, tag: Option<&str>) -> Result<GitHubRelease> {
+    let api_url = if let Some(tag) = tag {
+        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
+    } else {
+        format!("https://api.github.com/repos/{repo}/releases/latest")
+    };
+
+    println!("Fetching release info from: {api_url}");
+
+    let mut request = ureq::get(&api_url).set("User-Agent", "zipget-rs");
+
+    // Use GITHUB_TOKEN if available for higher rate limits
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        request = request.set("Authorization", &format!("Bearer {token}"));
+    }
+
+    let response = request
+        .call()
+        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
+
+    if response.status() != 200 {
+        return Err(anyhow::anyhow!(
+            "GitHub API request failed with status: {}",
+            response.status()
+        ));
+    }
+
+    response
+        .into_json()
+        .with_context(|| "Failed to parse GitHub release JSON")
+}
+
 /// Fetch a GitHub release with the specified parameters
 pub fn fetch_github_release(
     repo: &str,
@@ -18,30 +51,7 @@ pub fn fetch_github_release(
 ) -> Result<()> {
     let (release, binary_name) = if let Some(name) = binary_name {
         // User specified binary name, fetch release separately
-        let api_url = if let Some(tag) = tag {
-            format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
-        } else {
-            format!("https://api.github.com/repos/{repo}/releases/latest")
-        };
-
-        println!("Fetching release info from: {api_url}");
-
-        let response = ureq::get(&api_url)
-            .set("User-Agent", "zipget-rs")
-            .call()
-            .with_context(|| format!("Failed to fetch release info for {repo}"))?;
-
-        if response.status() != 200 {
-            return Err(anyhow::anyhow!(
-                "GitHub API request failed with status: {}",
-                response.status()
-            ));
-        }
-
-        let release: GitHubRelease = response
-            .into_json()
-            .with_context(|| "Failed to parse GitHub release JSON")?;
-
+        let release = fetch_release_info(repo, tag)?;
         (release, name.to_string())
     } else {
         println!("No binary specified for {repo}, analyzing available assets...");
@@ -137,29 +147,7 @@ pub fn get_best_binary_from_release(
     repo: &str,
     tag: Option<&str>,
 ) -> Result<(GitHubRelease, String)> {
-    let api_url = if let Some(tag) = tag {
-        format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
-    } else {
-        format!("https://api.github.com/repos/{repo}/releases/latest")
-    };
-
-    println!("Fetching release info from: {api_url}");
-
-    let response = ureq::get(&api_url)
-        .set("User-Agent", "zipget-rs")
-        .call()
-        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
-
-    if response.status() != 200 {
-        return Err(anyhow::anyhow!(
-            "GitHub API request failed with status: {}",
-            response.status()
-        ));
-    }
-
-    let release: GitHubRelease = response
-        .into_json()
-        .with_context(|| "Failed to parse GitHub release JSON")?;
+    let release = fetch_release_info(repo, tag)?;
 
     // Simple heuristic to find best binary for current platform
     let os = std::env::consts::OS;

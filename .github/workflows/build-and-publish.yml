@@ -72,6 +72,8 @@ jobs:
           python-version: '3.9'
       - name: Run integration test suite
         run: python3 test/test-suite.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Upload test artifacts on failure
         uses: actions/upload-artifact@v4
         if: failure()
