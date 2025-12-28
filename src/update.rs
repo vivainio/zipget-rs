@@ -12,7 +12,8 @@ pub fn self_update() -> Result<()> {
         None,           // latest tag
         None,           // no files pattern
         None,           // no AWS profile
-        Some("zipget"), // install zipget executable
+        Some("zipget"), // select zipget executable from package
+        Some("zipget"), // install as "zipget"
         false,          // use default shim behavior
     )
 }

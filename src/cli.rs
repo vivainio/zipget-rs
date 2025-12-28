@@ -105,6 +105,7 @@ pub fn run() -> Result<()> {
                 files.as_deref(),
                 profile.as_deref(),
                 executable.as_deref(),
+                None, // install_as - use default (strip platform suffix)
                 no_shim,
             )?;
         }

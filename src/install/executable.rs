@@ -28,6 +28,54 @@ pub fn is_executable(path: &Path) -> Result<bool> {
     }
 }
 
+/// Strip common platform suffixes from a binary name to get a clean name
+/// e.g., "zipget-linux-x64" -> "zipget", "tool-windows-x64.exe" -> "tool.exe"
+pub fn strip_platform_suffix(name: &str) -> String {
+    // Platform tokens that should be stripped from the end
+    const PLATFORM_TOKENS: &[&str] = &[
+        // Operating systems
+        "linux", "windows", "win", "win32", "win64", "macos", "darwin", "apple",
+        // Architectures
+        "x64", "x86_64", "amd64", "arm64", "aarch64", "i386", "i686",
+        // Libc variants
+        "gnu", "musl", "msvc",
+        // Other qualifiers
+        "unknown", "pc",
+    ];
+
+    let mut result = name.to_string();
+
+    // Handle .exe extension specially - strip it, process, then re-add
+    let has_exe = result.to_lowercase().ends_with(".exe");
+    if has_exe {
+        result = result[..result.len() - 4].to_string();
+    }
+
+    // Split by '-' and strip platform tokens from the end
+    let parts: Vec<&str> = result.split('-').collect();
+    let mut end_idx = parts.len();
+
+    // Find where platform tokens start (from the end)
+    while end_idx > 1 {
+        let part_lower = parts[end_idx - 1].to_lowercase();
+        if PLATFORM_TOKENS.contains(&part_lower.as_str()) {
+            end_idx -= 1;
+        } else {
+            break;
+        }
+    }
+
+    // Reconstruct the name without platform suffix
+    result = parts[..end_idx].join("-");
+
+    // Re-add .exe if it was there
+    if has_exe {
+        result.push_str(".exe");
+    }
+
+    result
+}
+
 /// Find all executable files in a directory recursively
 pub fn find_executables(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut executables = Vec::new();
@@ -58,6 +106,7 @@ pub fn install_package(
     files_pattern: Option<&str>,
     profile: Option<&str>,
     executable: Option<&str>,
+    install_as: Option<&str>,
     no_shim: bool,
 ) -> Result<()> {
     use crate::archive::utils as archive_utils;
@@ -164,10 +213,19 @@ pub fn install_package(
 
             fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
 
-            let filename = exe_to_install
+            // Determine the install filename
+            let original_filename = exe_to_install
                 .file_name()
+                .and_then(|n| n.to_str())
                 .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
-            let install_path = local_bin.join(filename);
+
+            let install_filename = if let Some(name) = install_as {
+                name.to_string()
+            } else {
+                strip_platform_suffix(original_filename)
+            };
+
+            let install_path = local_bin.join(&install_filename);
 
             fs::copy(&exe_to_install, &install_path)
                 .context("Failed to copy executable to ~/.local/bin")?;
@@ -201,10 +259,19 @@ pub fn install_package(
 
         fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
 
-        let filename = exe_to_install
+        // Determine the install filename
+        let original_filename = exe_to_install
             .file_name()
+            .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
-        let install_path = local_bin.join(filename);
+
+        let install_filename = if let Some(name) = install_as {
+            name.to_string()
+        } else {
+            strip_platform_suffix(original_filename)
+        };
+
+        let install_path = local_bin.join(&install_filename);
 
         // Remove existing file first to avoid "Text file busy" error when updating a running executable
         if install_path.exists() {
@@ -364,5 +431,47 @@ mod tests {
 
         let result = find_executables(temp.path()).unwrap();
         assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_strip_platform_suffix_linux() {
+        assert_eq!(strip_platform_suffix("zipget-linux-x64"), "zipget");
+        assert_eq!(strip_platform_suffix("tool-linux-amd64"), "tool");
+        assert_eq!(strip_platform_suffix("app-linux-arm64"), "app");
+        assert_eq!(strip_platform_suffix("cli-linux-x64-musl"), "cli");
+    }
+
+    #[test]
+    fn test_strip_platform_suffix_windows() {
+        assert_eq!(strip_platform_suffix("zipget-windows-x64.exe"), "zipget.exe");
+        assert_eq!(strip_platform_suffix("tool-win-amd64.exe"), "tool.exe");
+        assert_eq!(strip_platform_suffix("app-win64.exe"), "app.exe");
+    }
+
+    #[test]
+    fn test_strip_platform_suffix_macos() {
+        assert_eq!(strip_platform_suffix("zipget-macos-arm64"), "zipget");
+        assert_eq!(strip_platform_suffix("tool-darwin-x64"), "tool");
+        assert_eq!(strip_platform_suffix("app-macos-x86_64"), "app");
+    }
+
+    #[test]
+    fn test_strip_platform_suffix_triple() {
+        assert_eq!(strip_platform_suffix("rg-x86_64-unknown-linux-gnu"), "rg");
+        assert_eq!(strip_platform_suffix("fd-x86_64-apple-darwin"), "fd");
+        assert_eq!(strip_platform_suffix("bat-x86_64-pc-windows-msvc.exe"), "bat.exe");
+    }
+
+    #[test]
+    fn test_strip_platform_suffix_no_suffix() {
+        assert_eq!(strip_platform_suffix("zipget"), "zipget");
+        assert_eq!(strip_platform_suffix("tool.exe"), "tool.exe");
+    }
+
+    #[test]
+    fn test_strip_platform_suffix_simple_arch() {
+        assert_eq!(strip_platform_suffix("tool-x64"), "tool");
+        assert_eq!(strip_platform_suffix("app-amd64"), "app");
+        assert_eq!(strip_platform_suffix("cli-arm64"), "cli");
     }
 }

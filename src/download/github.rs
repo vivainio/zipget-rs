@@ -114,30 +114,44 @@ pub fn fetch_github_release(
     // Extract if unzip_to is specified
     if let Some(unzip_to) = unzip_to {
         println!("Extracting to: {unzip_to}");
-        extract_archive_with_options(&file_path, unzip_to, files_pattern)?;
+        extract_archive_with_options(&file_path, unzip_to, files_pattern, &filename)?;
     }
 
     Ok(())
 }
 
 /// Extract archive with options (simplified version)
+/// For non-archive files (direct binaries), copies them to the extraction directory
 fn extract_archive_with_options(
     file_path: &Path,
     extract_to: &str,
     files_pattern: Option<&str>,
+    original_filename: &str,
 ) -> Result<()> {
     use crate::archive::{tar, zip};
 
-    let filename = file_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-
-    if file_path.extension().and_then(|s| s.to_str()) == Some("zip") {
+    if original_filename.ends_with(".zip") {
         let _ = zip::extract_zip(file_path, extract_to, files_pattern)?;
-    } else if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
+    } else if original_filename.ends_with(".tar.gz") || original_filename.ends_with(".tgz") {
         let _ = tar::extract_tar_gz(file_path, extract_to, files_pattern)?;
-    } else if filename.ends_with(".tar.zst") {
+    } else if original_filename.ends_with(".tar.zst") {
         let _ = tar::extract_tar_zst(file_path, extract_to, files_pattern)?;
     } else {
-        println!("Warning: Unknown archive format, skipping extraction");
+        // Not an archive - assume it's a direct binary and copy it to the extraction directory
+        let dest_path = Path::new(extract_to).join(original_filename);
+        fs::copy(file_path, &dest_path)
+            .with_context(|| format!("Failed to copy binary to: {}", dest_path.display()))?;
+
+        // Set executable permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            fs::set_permissions(&dest_path, perms)
+                .with_context(|| format!("Failed to set executable permissions on: {}", dest_path.display()))?;
+        }
+
+        println!("Copied direct binary to: {}", dest_path.display());
     }
     Ok(())
 }
