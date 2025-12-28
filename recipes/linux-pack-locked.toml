@@ -1,0 +1,59 @@
+[fzf]
+unzip_to = "./tools"
+files = "fzf"
+github = { repo = "junegunn/fzf", asset = "linux_amd64.tar.gz", tag = "v0.67.0" }
+lock = { sha = "4be08018ca37b32518c608741933ea335a406de3558242b60619e98f25be2be1", download_url = "https://github.com/junegunn/fzf/releases/download/v0.67.0/fzf-0.67.0-linux_amd64.tar.gz" }
+
+[ripgrep]
+unzip_to = "./tools"
+files = "*/rg"
+github = { repo = "BurntSushi/ripgrep", asset = "x86_64-unknown-linux-musl.tar.gz", tag = "15.1.0" }
+lock = { sha = "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599", download_url = "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz" }
+
+[bat]
+unzip_to = "./tools"
+files = "*/bat"
+github = { repo = "sharkdp/bat", asset = "x86_64-unknown-linux-musl.tar.gz", tag = "v0.26.1" }
+lock = { sha = "0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191", download_url = "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz" }
+
+[starship]
+unzip_to = "./tools"
+files = "starship"
+github = { repo = "starship/starship", asset = "x86_64-unknown-linux-musl.tar.gz", tag = "v1.24.1" }
+lock = { sha = "44a729c34aea5b0451fba49108cdc5ef6b1ae68db65e7623cc244a52efcd23d1", download_url = "https://github.com/starship/starship/releases/download/v1.24.1/starship-x86_64-unknown-linux-musl.tar.gz" }
+
+[microsoft-edit]
+unzip_to = "./tools"
+files = "edit"
+github = { repo = "microsoft/edit", asset = "x86_64-linux-gnu.tar.zst", tag = "v1.2.1" }
+lock = { sha = "aee9f2f21ebc90cc1dbfb20ee93d3aa03d325127a8e3f7f91dd02c5a9e0a7b25", download_url = "https://github.com/microsoft/edit/releases/download/v1.2.1/edit-1.2.0-x86_64-linux-gnu.tar.zst" }
+
+[fd]
+unzip_to = "./tools"
+files = "*/fd"
+github = { repo = "sharkdp/fd", asset = "x86_64-unknown-linux-musl.tar.gz", tag = "v10.3.0" }
+lock = { sha = "2b6bfaae8c48f12050813c2ffe1884c61ea26e750d803df9c9114550a314cd14", download_url = "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-musl.tar.gz" }
+
+[zoxide]
+unzip_to = "./tools"
+files = "zoxide"
+github = { repo = "ajeetdsouza/zoxide", asset = "x86_64-unknown-linux-musl.tar.gz", tag = "v0.9.8" }
+lock = { sha = "4092ee38aa1efde42e4efb2f9c872df5388198aacae7f1a74e5eb5c3cc7f531c", download_url = "https://github.com/ajeetdsouza/zoxide/releases/download/v0.9.8/zoxide-0.9.8-x86_64-unknown-linux-musl.tar.gz" }
+
+[aws-cli]
+url = "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+unzip_to = "./aws-cli-installer"
+lock = { sha = "3ac42eb500059bb01060529f8850afd7878487ce0f8f29f9ab4cf00fd7eba358", download_url = "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" }
+
+[zellij]
+unzip_to = "./tools"
+files = "zellij"
+github = { repo = "zellij-org/zellij", asset = "zellij-x86_64-unknown-linux-musl.tar.gz", tag = "v0.43.1" }
+lock = { sha = "541d98efef5558293ef85ad9acd29e4d920b6e881513b9e77255d8207020d75a", download_url = "https://github.com/zellij-org/zellij/releases/download/v0.43.1/zellij-x86_64-unknown-linux-musl.tar.gz" }
+
+[delta]
+unzip_to = "./tools"
+files = "*/delta"
+github = { repo = "dandavison/delta", asset = "x86_64-unknown-linux-musl.tar.gz", tag = "0.18.2" }
+lock = { sha = "b7ea845004762358a00ef9127dd9fd723e333c7e4b9cb1da220c3909372310ee", download_url = "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-x86_64-unknown-linux-musl.tar.gz" }
+
