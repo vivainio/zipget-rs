@@ -24,10 +24,34 @@ You want to download and extract files from multiple sources - public URLs, GitH
 
 ## Installation
 
+### Linux / macOS
+
+```bash
+curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-linux-x64 -o ~/.local/bin/zipget && chmod +x ~/.local/bin/zipget
+```
+
+For macOS ARM (Apple Silicon):
+```bash
+curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-macos-arm64 -o ~/.local/bin/zipget && chmod +x ~/.local/bin/zipget
+```
+
+### Windows (PowerShell)
+
+```powershell
+iwr https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-windows-x64.exe -OutFile ~/.local/bin/zipget.exe
+```
+
+### Self-Update
+
+Once installed, zipget can update itself:
+```bash
+zipget update
+```
+
 ### From Source
 
 ```bash
-git clone <this-repository>
+git clone https://github.com/vivainio/zipget-rs
 cd zipget-rs
 cargo build --release
 ```
