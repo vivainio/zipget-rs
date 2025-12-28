@@ -1,0 +1,62 @@
+# zipget-rs recipe for WSL development tools
+# Install with: zipget wsl-tools.toml
+
+[zellij]
+# Terminal multiplexer - https://github.com/zellij-org/zellij
+github = { repo = "zellij-org/zellij", asset = "zellij-x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "zellij"
+
+[microsoft-edit]
+# Terminal-based text editor - https://github.com/microsoft/edit
+# Note: only gnu builds available (no musl)
+github = { repo = "microsoft/edit", asset = "x86_64-linux-gnu.tar.zst" }
+unzip_to = "./tools"
+files = "edit"
+
+[starship]
+# Cross-shell prompt - https://github.com/starship/starship
+github = { repo = "starship/starship", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "starship"
+
+[ripgrep]
+# Fast regex search tool - https://github.com/BurntSushi/ripgrep
+github = { repo = "BurntSushi/ripgrep", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "*/rg"
+
+[fd]
+# Fast find alternative - https://github.com/sharkdp/fd
+github = { repo = "sharkdp/fd", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "*/fd"
+
+[bat]
+# Cat with syntax highlighting - https://github.com/sharkdp/bat
+github = { repo = "sharkdp/bat", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "*/bat"
+
+[fzf]
+# Fuzzy finder - https://github.com/junegunn/fzf
+github = { repo = "junegunn/fzf", asset = "linux_amd64.tar.gz" }
+unzip_to = "./tools"
+files = "fzf"
+
+[zoxide]
+# Smarter cd command - https://github.com/ajeetdsouza/zoxide
+github = { repo = "ajeetdsouza/zoxide", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "zoxide"
+
+[delta]
+# Git diff viewer - https://github.com/dandavison/delta
+github = { repo = "dandavison/delta", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "./tools"
+files = "*/delta"
+
+[aws-cli]
+# AWS CLI v2 - official installer
+url = "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+unzip_to = "./aws-cli-installer"
