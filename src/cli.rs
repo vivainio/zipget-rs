@@ -113,6 +113,9 @@ pub fn run() -> Result<()> {
             // TODO: Implement shim creation
             crate::install::shim::create_shim(&target_executable)?;
         }
+        Commands::Update => {
+            crate::update::self_update()?;
+        }
     }
 
     Ok(())

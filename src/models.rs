@@ -149,6 +149,8 @@ pub enum Commands {
         /// Path to the existing executable to create a shim for
         target_executable: String,
     },
+    /// Update zipget to the latest version from GitHub
+    Update,
 }
 
 /// Lock information for downloaded files

@@ -10,6 +10,7 @@ pub mod install;
 pub mod models;
 pub mod recipe;
 pub mod runner;
+pub mod update;
 pub mod utils;
 pub mod vars;
 
