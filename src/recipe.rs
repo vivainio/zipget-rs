@@ -7,9 +7,14 @@ use crate::models::{
 };
 use crate::utils::get_filename_from_url;
 use crate::vars::VarContext;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Check if a path is a URL
+fn is_url(path: &str) -> bool {
+    path.starts_with("http://") || path.starts_with("https://")
+}
 
 /// Result of processing a single fetch item
 #[derive(Debug, Default)]
@@ -26,19 +31,44 @@ pub struct ProcessResult {
 
 /// Process a recipe file with the given parameters
 pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
+    let is_remote = is_url(file_path);
+
+    // Disallow --upgrade and --lock with remote URLs
+    if is_remote {
+        if opts.upgrade {
+            bail!("Cannot use --upgrade with remote recipe URLs");
+        }
+        if opts.lock {
+            bail!("Cannot use --lock with remote recipe URLs");
+        }
+    }
+
     if opts.upgrade {
         return upgrade_recipe(file_path);
     }
 
-    let recipe_content = fs::read_to_string(file_path)
-        .with_context(|| format!("Failed to read recipe file: {file_path}"))?;
+    // Fetch recipe content from URL or read from local file
+    let recipe_content = if is_remote {
+        println!("Fetching recipe from: {file_path}");
+        let response = ureq::get(file_path)
+            .call()
+            .with_context(|| format!("Failed to fetch recipe from: {file_path}"))?;
+        response
+            .into_string()
+            .with_context(|| format!("Failed to read recipe content from: {file_path}"))?
+    } else {
+        fs::read_to_string(file_path)
+            .with_context(|| format!("Failed to read recipe file: {file_path}"))?
+    };
 
     let recipe: Recipe =
         toml::from_str(&recipe_content).with_context(|| "Failed to parse recipe TOML")?;
 
     // Create variable context with recipe vars and CLI overrides
-    let recipe_path = Path::new(file_path);
-    let var_ctx = VarContext::new(&recipe.vars, opts.var_overrides, Some(recipe_path))
+    // For remote URLs, recipe_path is None (recipe_dir will default to ".")
+    let local_path = Path::new(file_path);
+    let recipe_path = if is_remote { None } else { Some(local_path) };
+    let var_ctx = VarContext::new(&recipe.vars, opts.var_overrides, recipe_path)
         .with_context(|| "Failed to create variable context")?;
 
     // Show active variables if any custom vars are defined
