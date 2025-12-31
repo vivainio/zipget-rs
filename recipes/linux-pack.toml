@@ -1,6 +1,9 @@
 # zipget-rs recipe for WSL development tools
 # Install with: zipget wsl-tools.toml
 
+[vars]
+dotnet_10_version = "10.0.101"
+
 [zellij]
 # Terminal multiplexer - https://github.com/zellij-org/zellij
 github = { repo = "zellij-org/zellij", asset = "zellij-x86_64-unknown-linux-musl.tar.gz" }
@@ -55,6 +58,11 @@ files = "zoxide"
 github = { repo = "dandavison/delta", asset = "x86_64-unknown-linux-musl.tar.gz" }
 unzip_to = "./tools"
 files = "*/delta"
+
+[dotnet10]
+# .NET 10 SDK - https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/${dotnet_10_version}/dotnet-sdk-${dotnet_10_version}-linux-x64.tar.gz"
+unzip_to = "/usr/lib/dotnet"
 
 [aws-cli]
 # AWS CLI v2 - official installer
