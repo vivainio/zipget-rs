@@ -7,7 +7,7 @@ use crate::models::{
 };
 use crate::utils::get_filename_from_url;
 use crate::vars::VarContext;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
