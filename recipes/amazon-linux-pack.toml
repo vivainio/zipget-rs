@@ -1,0 +1,67 @@
+# zipget-rs recipe for WSL development tools
+# Install with: zipget wsl-tools.toml
+
+[vars]
+bin_dir = "/usr/local/bin"
+dotnet_10_version = "10.0.101"
+
+
+
+[microsoft-edit]
+# Terminal-based text editor - https://github.com/microsoft/edit
+# Note: only gnu builds available (no musl)
+github = { repo = "microsoft/edit", asset = "x86_64-linux-gnu.tar.zst" }
+unzip_to = "${bin_dir}"
+files = "edit"
+
+[starship]
+# Cross-shell prompt - https://github.com/starship/starship
+github = { repo = "starship/starship", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "starship"
+
+[ripgrep]
+# Fast regex search tool - https://github.com/BurntSushi/ripgrep
+github = { repo = "BurntSushi/ripgrep", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "*/rg"
+
+[fd]
+# Fast find alternative - https://github.com/sharkdp/fd
+github = { repo = "sharkdp/fd", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "*/fd"
+
+[bat]
+# Cat with syntax highlighting - https://github.com/sharkdp/bat
+github = { repo = "sharkdp/bat", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "*/bat"
+
+[fzf]
+# Fuzzy finder - https://github.com/junegunn/fzf
+github = { repo = "junegunn/fzf", asset = "linux_amd64.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "fzf"
+
+[zoxide]
+# Smarter cd command - https://github.com/ajeetdsouza/zoxide
+github = { repo = "ajeetdsouza/zoxide", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "zoxide"
+
+[delta]
+# Git diff viewer - https://github.com/dandavison/delta
+github = { repo = "dandavison/delta", asset = "x86_64-unknown-linux-musl.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "*/delta"
+
+[dotnet10]
+# .NET 10 SDK - https://dotnet.microsoft.com/en-us/download/dotnet/10.0
+url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/${dotnet_10_version}/dotnet-sdk-${dotnet_10_version}-linux-x64.tar.gz"
+unzip_to = "/usr/lib/dotnet"
+
+[aws-cli]
+# AWS CLI v2 - official installer
+url = "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+unzip_to = "./aws-cli-installer"
