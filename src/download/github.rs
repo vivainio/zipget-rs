@@ -236,6 +236,11 @@ pub fn get_best_binary_from_release(
             }
         }
 
+        // Prefer musl for portability on Linux
+        if os == "linux" && name_lower.contains("musl") {
+            score += 5;
+        }
+
         // Penalty for wrong architecture
         for pattern in wrong_arch_patterns {
             if name_lower.contains(pattern) {
@@ -312,6 +317,11 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
                 score += 50 - (i as i32 * 5); // First match gets 50, second gets 45, etc.
                 break;
             }
+        }
+
+        // Prefer musl for portability on Linux
+        if os == "linux" && name_lower.contains("musl") {
+            score += 25;
         }
 
         // Penalty for wrong architecture

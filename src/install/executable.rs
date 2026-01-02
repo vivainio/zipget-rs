@@ -113,6 +113,8 @@ pub struct InstallOptions<'a> {
     pub install_as: Option<&'a str>,
     /// Skip shim creation on Windows
     pub no_shim: bool,
+    /// Directory to install to (defaults to ~/.local/bin)
+    pub install_dir: Option<PathBuf>,
 }
 
 /// Install a package (executables) to the system
@@ -213,13 +215,17 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
     #[cfg(windows)]
     {
         if opts.no_shim {
-            // Copy to ~/.local/bin
-            let local_bin = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-                .join(".local")
-                .join("bin");
+            // Copy to specified directory or ~/.local/bin
+            let local_bin = if let Some(ref dir) = opts.install_dir {
+                dir.clone()
+            } else {
+                dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                    .join(".local")
+                    .join("bin")
+            };
 
-            fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
+            fs::create_dir_all(&local_bin).context("Failed to create install directory")?;
 
             // Determine the install filename
             let original_filename = exe_to_install
@@ -259,13 +265,17 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
     {
         use crate::install::utils::is_directory_in_path;
 
-        // On Unix, install to ~/.local/bin
-        let local_bin = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-            .join(".local")
-            .join("bin");
+        // On Unix, install to specified directory or ~/.local/bin
+        let local_bin = if let Some(dir) = opts.install_dir {
+            dir
+        } else {
+            dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .join(".local")
+                .join("bin")
+        };
 
-        fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
+        fs::create_dir_all(&local_bin).context("Failed to create install directory")?;
 
         // Determine the install filename
         let original_filename = exe_to_install
