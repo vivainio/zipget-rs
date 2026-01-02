@@ -27,7 +27,7 @@ You want to download and extract files from multiple sources - public URLs, GitH
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-linux-x64-musl -o /usr/local/bin/zipget && chmod +x /usr/local/bin/zipget
+sudo curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-linux-x64-musl -o /usr/local/bin/zipget && sudo chmod +x /usr/local/bin/zipget
 ```
 
 For macOS ARM (Apple Silicon):

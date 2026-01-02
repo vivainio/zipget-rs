@@ -103,8 +103,8 @@ pub fn fetch_github_release(
         fs::copy(&file_path, save_path)
             .with_context(|| format!("Failed to save file as: {save_as}"))?;
         println!("Saved as: {save_as}");
-    } else {
-        // If no save_as specified, copy to current directory with original filename
+    } else if unzip_to.is_none() {
+        // Only copy to current directory if not extracting (extraction handles the file itself)
         let output_path = Path::new(".").join(&filename);
         fs::copy(&file_path, &output_path)
             .with_context(|| format!("Failed to copy file to: {}", output_path.display()))?;

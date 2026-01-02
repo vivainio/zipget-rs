@@ -159,7 +159,11 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
             source.to_string()
         };
 
-        // Download from GitHub release
+        // Download from GitHub release to temp staging directory.
+        // We use unzip_to as a staging area for both archives and direct binaries:
+        // - Archives get extracted there
+        // - Direct binaries get copied there (detected by extract_archive_with_options)
+        // This unified workflow lets us then scan for executables and install them.
         println!("Downloading from GitHub: {repo_path}");
         github::fetch_github_release(
             &repo_path,
