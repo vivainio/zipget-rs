@@ -108,6 +108,15 @@ pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
     }
 }
 
+/// Print available tags from a recipe
+fn print_available_tags(recipe: &Recipe) {
+    let mut available: Vec<&str> = recipe.items.keys().map(|s| s.as_str()).collect();
+    available.sort();
+    if !available.is_empty() {
+        println!("Available tags: {}", available.join(", "));
+    }
+}
+
 /// Check if section name matches inclusion tags and doesn't match exclusion tags
 fn matches_tags(section_name: &str, tags: &[String], exclude: &[String]) -> bool {
     // First check exclusions - if any exclusion matches, return false
@@ -138,6 +147,7 @@ fn dry_run_recipe(
     if items_to_process.is_empty() {
         if !tags.is_empty() {
             println!("No items found matching tags: {}", tags.join(", "));
+            print_available_tags(recipe);
         } else {
             println!("No items to process in recipe");
         }
@@ -202,6 +212,7 @@ fn process_recipe_items(
     if items_to_process.is_empty() {
         if !tags.is_empty() {
             println!("No items found matching tags: {}", tags.join(", "));
+            print_available_tags(recipe);
         } else {
             println!("No items to process in recipe");
         }
@@ -377,6 +388,7 @@ fn process_recipe_for_lock(
     if sections_to_process.is_empty() {
         if !tags.is_empty() {
             println!("No items found matching tags: {}", tags.join(", "));
+            print_available_tags(recipe);
         } else {
             println!("No items to process in recipe");
         }
