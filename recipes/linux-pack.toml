@@ -47,6 +47,12 @@ github = { repo = "junegunn/fzf", asset = "linux_amd64.tar.gz" }
 unzip_to = "./tools"
 files = "fzf"
 
+[gh]
+# GitHub CLI - https://github.com/cli/cli
+github = { repo = "cli/cli", asset = "linux_amd64.tar.gz" }
+unzip_to = "./tools"
+files = "*/bin/gh"
+
 [zoxide]
 # Smarter cd command - https://github.com/ajeetdsouza/zoxide
 github = { repo = "ajeetdsouza/zoxide", asset = "x86_64-unknown-linux-musl.tar.gz" }
