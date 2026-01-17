@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Embed the scoop shim executable at compile time (Windows only)
 #[cfg(windows)]
@@ -51,9 +51,9 @@ pub fn create_shim(target: &str, name: Option<&str>, java_opts: Option<&str>) ->
 
 /// Create a launcher script for a JAR file
 fn create_jar_launcher(
-    local_bin: &PathBuf,
+    local_bin: &Path,
     name: &str,
-    jar_path: &PathBuf,
+    jar_path: &Path,
     java_opts: Option<&str>,
 ) -> Result<()> {
     let java_opts_str = java_opts.unwrap_or("");
@@ -104,7 +104,7 @@ fn create_jar_launcher(
 }
 
 /// Create a shim for a native executable
-fn create_executable_shim(local_bin: &PathBuf, name: &str, exe_path: &PathBuf) -> Result<()> {
+fn create_executable_shim(local_bin: &Path, name: &str, exe_path: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         // Use Scoop-style shim on Windows
