@@ -20,6 +20,7 @@ You want to download and extract files from multiple sources - public URLs, GitH
 - **Flexible Output**: Extract to directories and/or save files with custom names
 - **Direct Execution**: Download and run executables directly with the `run` command
 - **Cross-Platform Installation**: Install executables directly to `~/.local/bin` on any platform with `--no-shim`, or use Windows shims
+- **Java JAR Support**: Download and create launchers for Java JAR applications
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 
 ## Installation
@@ -46,6 +47,34 @@ iwr https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-window
 Once installed, zipget can update itself:
 ```bash
 zipget update
+```
+
+### GitHub Actions
+
+```yaml
+- name: Install zipget
+  run: |
+    curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-linux-x64-musl -o /usr/local/bin/zipget
+    chmod +x /usr/local/bin/zipget
+
+- name: Download tools
+  run: zipget recipe tools.toml
+```
+
+For Windows runners:
+```yaml
+- name: Install zipget
+  run: |
+    Invoke-WebRequest -Uri "https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-windows-x64.exe" -OutFile "$env:USERPROFILE\.local\bin\zipget.exe"
+    echo "$env:USERPROFILE\.local\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+```
+
+For macOS runners (ARM):
+```yaml
+- name: Install zipget
+  run: |
+    curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-macos-arm64 -o /usr/local/bin/zipget
+    chmod +x /usr/local/bin/zipget
 ```
 
 ### From Source
@@ -76,6 +105,9 @@ zipget install google/go-jsonnet
 
 # Install tools directly (cross-platform)
 zipget install google/go-jsonnet --no-shim
+
+# Create launcher for a Java JAR
+zipget shim ./myapp.jar
 ```
 
 ### S3 Quick Start
@@ -158,6 +190,40 @@ zipget install s3://my-bucket/app.zip --profile my-profile --no-shim
 **Shims vs Direct Installation:**
 - **Shims (Windows only)**: Creates wrapper executables that can handle different versions and provide additional functionality
 - **Direct Installation (`--no-shim`)**: Copies executables directly to `~/.local/bin`, works on all platforms
+
+### Shim Command
+
+Create launchers/shims for executables or Java JAR files:
+
+```bash
+# Create a launcher for a JAR file
+zipget shim ./plantuml.jar
+
+# Create with a custom name
+zipget shim ./plantuml.jar --name plantuml
+
+# Create with Java options (for JARs)
+zipget shim ./myapp.jar --java-opts="-Xmx1g -Xms256m"
+
+# Create a shim for a native executable
+zipget shim ./mytool
+```
+
+**How it works:**
+- For JAR files: Creates a shell script (Unix) or batch file (Windows) that runs `java -jar`
+- For executables: Creates a shell script wrapper (Unix) or Scoop-style shim (Windows)
+- Launchers are created in `~/.local/bin`
+
+**Generated JAR launcher (Unix):**
+```bash
+#!/bin/sh
+exec java -Xmx1g -jar "/path/to/myapp.jar" "$@"
+```
+
+**Generated JAR launcher (Windows):**
+```batch
+@java -Xmx1g -jar "C:\path\to\myapp.jar" %*
+```
 
 ### Recipe Command
 
@@ -262,6 +328,44 @@ Each section represents a download item and can have:
 - **files**: Glob pattern for files to extract from archives (extracts all if not specified)
 - **profile**: AWS profile to use for S3 downloads (overrides global --profile)
 - **executable**: Set to `true` to add executable permission to extracted files (Unix only)
+- **install_exes**: List of executables or JAR files to install to `~/.local/bin` (supports glob patterns)
+- **no_shim**: Set to `true` to copy executables directly instead of creating shims/launchers
+
+## Java JAR Support
+
+Zipget can download Java JAR applications and create launcher scripts for them.
+
+### Installing JARs from Recipes
+
+```toml
+[plantuml]
+github = { repo = "plantuml/plantuml", asset = "plantuml.jar" }
+save_as = "./tools/plantuml.jar"
+install_exes = ["plantuml.jar"]
+```
+
+This will:
+1. Download `plantuml.jar` from the GitHub release
+2. Save it to `./tools/plantuml.jar`
+3. Create a launcher at `~/.local/bin/plantuml`
+
+### Installing JARs with the Shim Command
+
+```bash
+# Download a JAR manually, then create a launcher
+curl -LO https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar
+zipget shim ./plantuml.jar
+
+# Now you can run: plantuml -version
+```
+
+### JARs with Custom Java Options
+
+For JARs that need specific JVM settings:
+
+```bash
+zipget shim ./memory-intensive-app.jar --java-opts="-Xmx4g -XX:+UseG1GC"
+```
 
 ## GitHub Integration
 
@@ -604,6 +708,7 @@ zipget recipe --help
 zipget github --help
 zipget run --help
 zipget install --help
+zipget shim --help
 ```
 
 ## License

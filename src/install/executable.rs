@@ -259,6 +259,8 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                 exe_path
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                None,
+                None,
             )?;
 
             println!("Shim created for: {}", exe_to_install.display());

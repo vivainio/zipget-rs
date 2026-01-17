@@ -65,6 +65,13 @@ unzip_to = "./tools/fd"
 install_exes = ["fd"]
 no_shim = true
 
+[gh]
+# GitHub CLI - auto-selects linux tar.gz
+github = { repo = "cli/cli" }
+unzip_to = "./tools/gh"
+install_exes = ["gh"]
+no_shim = true
+
 # =============================================================================
 # S3 Downloads (requires AWS CLI configured)
 # =============================================================================

@@ -111,10 +111,12 @@ pub fn run() -> Result<()> {
                 },
             )?;
         }
-        Commands::Shim { target_executable } => {
-            println!("Shim command: target_executable={target_executable}");
-            // TODO: Implement shim creation
-            crate::install::shim::create_shim(&target_executable)?;
+        Commands::Shim {
+            target,
+            name,
+            java_opts,
+        } => {
+            crate::install::shim::create_shim(&target, name.as_deref(), java_opts.as_deref())?;
         }
         Commands::Update => {
             crate::update::self_update()?;

@@ -144,10 +144,16 @@ pub enum Commands {
         #[arg(long)]
         no_shim: bool,
     },
-    /// Create a shim in ~/.local/bin pointing to an existing executable
+    /// Create a launcher/shim in ~/.local/bin pointing to an existing executable or JAR file
     Shim {
-        /// Path to the existing executable to create a shim for
-        target_executable: String,
+        /// Path to the existing executable or JAR file to create a launcher for
+        target: String,
+        /// Custom name for the launcher (defaults to filename without extension)
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Java options to pass when launching JAR files (e.g., "-Xmx512m")
+        #[arg(long)]
+        java_opts: Option<String>,
     },
     /// Update zipget to the latest version from GitHub
     Update,

@@ -673,7 +673,154 @@ pub fn process_fetch_item(
         result.extracted_files = extracted_files;
     }
 
+    // Install executables/JARs if specified
+    if let Some(install_patterns) = &fetch_item.install_exes {
+        let base_dir = fetch_item
+            .unzip_to
+            .as_deref()
+            .or(fetch_item.save_as.as_deref().and_then(|s| Path::new(s).parent().and_then(|p| p.to_str())))
+            .unwrap_or(".");
+
+        install_from_patterns(base_dir, install_patterns, fetch_item.no_shim.unwrap_or(false), tag)?;
+    }
+
     Ok(result)
+}
+
+/// Install files matching patterns (executables or JARs)
+fn install_from_patterns(
+    base_dir: &str,
+    patterns: &[String],
+    no_shim: bool,
+    tag: &str,
+) -> Result<()> {
+    use crate::install::shim::create_shim;
+
+    let base_path = Path::new(base_dir);
+
+    // Get the install directory
+    let local_bin = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+        .join(".local")
+        .join("bin");
+    fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
+
+    for pattern in patterns {
+        // Find files matching the pattern
+        let matching_files = find_matching_files(base_path, pattern)?;
+
+        if matching_files.is_empty() {
+            println!("[{tag}] Warning: No files matching pattern '{pattern}'");
+            continue;
+        }
+
+        for file_path in matching_files {
+            let filename = file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Invalid filename"))?;
+
+            let is_jar = file_path
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("jar"))
+                .unwrap_or(false);
+
+            if is_jar {
+                // Create a JAR launcher using the shim command
+                let abs_path = file_path
+                    .canonicalize()
+                    .with_context(|| format!("Failed to get absolute path: {}", file_path.display()))?;
+
+                create_shim(
+                    abs_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                    None,
+                    None,
+                )?;
+                println!("[{tag}] Created JAR launcher for: {filename}");
+            } else {
+                // Install as regular executable
+                let install_name = crate::install::executable::strip_platform_suffix(filename);
+                let install_path = local_bin.join(&install_name);
+
+                // Remove existing file first
+                if install_path.exists() {
+                    fs::remove_file(&install_path).context("Failed to remove existing file")?;
+                }
+
+                if no_shim {
+                    // Copy the file directly
+                    fs::copy(&file_path, &install_path)
+                        .with_context(|| format!("Failed to copy {} to ~/.local/bin", filename))?;
+
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let perms = fs::Permissions::from_mode(0o755);
+                        fs::set_permissions(&install_path, perms)?;
+                    }
+
+                    println!("[{tag}] Installed: {}", install_path.display());
+                } else {
+                    // Use shim/launcher
+                    let abs_path = file_path
+                        .canonicalize()
+                        .with_context(|| format!("Failed to get absolute path: {}", file_path.display()))?;
+
+                    create_shim(
+                        abs_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                        Some(&install_name),
+                        None,
+                    )?;
+                    println!("[{tag}] Created shim for: {filename}");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Find files matching a glob pattern in a directory
+fn find_matching_files(base_dir: &Path, pattern: &str) -> Result<Vec<PathBuf>> {
+    use glob_match::glob_match;
+
+    let mut matches = Vec::new();
+
+    fn visit_dir_inner(
+        dir: &Path,
+        pattern: &str,
+        base: &Path,
+        matches: &mut Vec<PathBuf>,
+        matcher: fn(&str, &str) -> bool,
+    ) -> Result<()> {
+        if !dir.exists() {
+            return Ok(());
+        }
+
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            // Get relative path for pattern matching
+            let rel_path = path.strip_prefix(base).unwrap_or(&path);
+            let rel_str = rel_path.to_string_lossy();
+
+            if path.is_dir() {
+                visit_dir_inner(&path, pattern, base, matches, matcher)?;
+            } else {
+                // Check if filename or relative path matches the pattern
+                let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+                if matcher(pattern, filename) || matcher(pattern, &rel_str) {
+                    matches.push(path);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    visit_dir_inner(base_dir, pattern, base_dir, &mut matches, glob_match)?;
+    Ok(matches)
 }
 
 /// Extract archive based on file extension, returns list of extracted files
