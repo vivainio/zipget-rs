@@ -678,10 +678,18 @@ pub fn process_fetch_item(
         let base_dir = fetch_item
             .unzip_to
             .as_deref()
-            .or(fetch_item.save_as.as_deref().and_then(|s| Path::new(s).parent().and_then(|p| p.to_str())))
+            .or(fetch_item
+                .save_as
+                .as_deref()
+                .and_then(|s| Path::new(s).parent().and_then(|p| p.to_str())))
             .unwrap_or(".");
 
-        install_from_patterns(base_dir, install_patterns, fetch_item.no_shim.unwrap_or(false), tag)?;
+        install_from_patterns(
+            base_dir,
+            install_patterns,
+            fetch_item.no_shim.unwrap_or(false),
+            tag,
+        )?;
     }
 
     Ok(result)
@@ -727,12 +735,14 @@ fn install_from_patterns(
 
             if is_jar {
                 // Create a JAR launcher using the shim command
-                let abs_path = file_path
-                    .canonicalize()
-                    .with_context(|| format!("Failed to get absolute path: {}", file_path.display()))?;
+                let abs_path = file_path.canonicalize().with_context(|| {
+                    format!("Failed to get absolute path: {}", file_path.display())
+                })?;
 
                 create_shim(
-                    abs_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                    abs_path
+                        .to_str()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
                     None,
                     None,
                 )?;
@@ -762,12 +772,14 @@ fn install_from_patterns(
                     println!("[{tag}] Installed: {}", install_path.display());
                 } else {
                     // Use shim/launcher
-                    let abs_path = file_path
-                        .canonicalize()
-                        .with_context(|| format!("Failed to get absolute path: {}", file_path.display()))?;
+                    let abs_path = file_path.canonicalize().with_context(|| {
+                        format!("Failed to get absolute path: {}", file_path.display())
+                    })?;
 
                     create_shim(
-                        abs_path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                        abs_path
+                            .to_str()
+                            .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
                         Some(&install_name),
                         None,
                     )?;

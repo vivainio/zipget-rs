@@ -94,7 +94,8 @@ fn create_jar_launcher(
         // Set executable permission
         use std::os::unix::fs::PermissionsExt;
         let perms = fs::Permissions::from_mode(0o755);
-        fs::set_permissions(&launcher_path, perms).context("Failed to set executable permission")?;
+        fs::set_permissions(&launcher_path, perms)
+            .context("Failed to set executable permission")?;
 
         println!("Created JAR launcher: {}", launcher_path.display());
     }
@@ -103,11 +104,7 @@ fn create_jar_launcher(
 }
 
 /// Create a shim for a native executable
-fn create_executable_shim(
-    local_bin: &PathBuf,
-    name: &str,
-    exe_path: &PathBuf,
-) -> Result<()> {
+fn create_executable_shim(local_bin: &PathBuf, name: &str, exe_path: &PathBuf) -> Result<()> {
     #[cfg(windows)]
     {
         // Use Scoop-style shim on Windows
@@ -125,15 +122,13 @@ fn create_executable_shim(
     {
         // Create a shell script wrapper on Unix
         let launcher_path = local_bin.join(name);
-        let script = format!(
-            "#!/bin/sh\nexec \"{}\" \"$@\"\n",
-            exe_path.display()
-        );
+        let script = format!("#!/bin/sh\nexec \"{}\" \"$@\"\n", exe_path.display());
         fs::write(&launcher_path, &script).context("Failed to write launcher script")?;
 
         use std::os::unix::fs::PermissionsExt;
         let perms = fs::Permissions::from_mode(0o755);
-        fs::set_permissions(&launcher_path, perms).context("Failed to set executable permission")?;
+        fs::set_permissions(&launcher_path, perms)
+            .context("Failed to set executable permission")?;
 
         println!("Created shim: {}", launcher_path.display());
     }
