@@ -576,8 +576,18 @@ pub fn process_fetch_item(
         } else {
             // No asset specified - use intelligent asset detection
             println!("[{tag}] No asset specified, analyzing available assets...");
-            let (release, best_asset) =
-                get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+            // Extract extension hint from save_as if available
+            let preferred_ext = fetch_item.save_as.as_ref().and_then(|s| {
+                Path::new(s)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| format!(".{e}"))
+            });
+            let (release, best_asset) = get_best_binary_from_release(
+                &github.repo,
+                github.tag.as_deref(),
+                preferred_ext.as_deref(),
+            )?;
 
             // Find the matching asset URL
             let asset = release
@@ -918,8 +928,18 @@ pub fn process_fetch_item_for_lock(
             (github_url, filename, resolved_tag)
         } else {
             println!("No asset specified, analyzing available assets...");
-            let (release, best_asset) =
-                get_best_binary_from_release(&github.repo, github.tag.as_deref())?;
+            // Extract extension hint from save_as if available
+            let preferred_ext = fetch_item.save_as.as_ref().and_then(|s| {
+                Path::new(s)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| format!(".{e}"))
+            });
+            let (release, best_asset) = get_best_binary_from_release(
+                &github.repo,
+                github.tag.as_deref(),
+                preferred_ext.as_deref(),
+            )?;
 
             let asset = release
                 .assets
@@ -1124,7 +1144,11 @@ fn get_github_release_url(repo: &str, asset_name: &str, tag: Option<&str>) -> Re
 }
 
 /// Get the best binary from a GitHub release automatically
-fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, String)> {
+fn get_best_binary_from_release(
+    repo: &str,
+    tag: Option<&str>,
+    preferred_ext: Option<&str>,
+) -> Result<(GitHubRelease, String)> {
     let api_url = if let Some(tag) = tag {
         format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
     } else {
@@ -1158,20 +1182,24 @@ fn get_best_binary_from_release(repo: &str, tag: Option<&str>) -> Result<(GitHub
         println!("  - {}", asset.name);
     }
 
-    let best_match = if let Some(best_match) = find_best_matching_binary(&release.assets) {
-        println!("Selected best match: {best_match}");
-        best_match
-    } else {
-        // Fallback to basic guess
-        println!("No good match found, falling back to basic guess");
-        guess_binary_name()
-    };
+    let best_match =
+        if let Some(best_match) = find_best_matching_binary(&release.assets, preferred_ext) {
+            println!("Selected best match: {best_match}");
+            best_match
+        } else {
+            // Fallback to basic guess
+            println!("No good match found, falling back to basic guess");
+            guess_binary_name()
+        };
 
     Ok((release, best_match))
 }
 
 /// Find the best matching binary from available assets
-fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
+fn find_best_matching_binary(
+    assets: &[GitHubAsset],
+    preferred_ext: Option<&str>,
+) -> Option<String> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
@@ -1241,16 +1269,24 @@ fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
     let mut scored_assets: Vec<(i32, &GitHubAsset)> = assets
         .iter()
         .filter(|asset| {
-            // Skip non-archive files unless they're executables
+            // Skip non-archive files unless they're executables or JARs
             let name_lower = asset.name.to_lowercase();
             name_lower.ends_with(".zip")
                 || name_lower.ends_with(".tar.gz")
                 || name_lower.ends_with(".tgz")
+                || name_lower.ends_with(".jar")
                 || (!name_lower.contains(".") && asset.size > 1000) // Likely executable
         })
         .map(|asset| {
             let name_lower = asset.name.to_lowercase();
             let mut score = 0;
+
+            // Strong boost if extension matches preferred extension (e.g., save_as ends with .jar)
+            if let Some(ext) = preferred_ext
+                && name_lower.ends_with(ext)
+            {
+                score += 200; // High priority for matching extension
+            }
 
             // Give points based on pattern matches (earlier patterns get higher scores)
             for (i, pattern) in patterns.iter().enumerate() {

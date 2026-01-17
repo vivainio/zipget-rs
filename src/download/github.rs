@@ -218,6 +218,7 @@ pub fn get_best_binary_from_release(
             || name_lower.ends_with(".zip")
             || name_lower.ends_with(".tar.gz")
             || name_lower.ends_with(".tar.zst")
+            || name_lower.ends_with(".jar")
         {
             score += 10;
         }
@@ -358,6 +359,7 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
             || name_lower.ends_with(".tar.gz")
             || name_lower.ends_with(".tgz")
             || name_lower.ends_with(".tar.zst")
+            || name_lower.ends_with(".jar")
         {
             score += 10;
         }
