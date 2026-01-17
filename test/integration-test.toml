@@ -2,7 +2,7 @@
 # Tests GitHub releases, HTTP downloads, and various archive formats
 
 [zipget-self]
-github = { repo = "vivainio/zipget-rs", asset = "linux-x64-musl" }
+github = { repo = "vivainio/zipget-rs", asset = "linux-x64-musl", tag = "v0.6.0" }
 save_as = "./test-downloads/zipget"
 
 [unxml-latest]
