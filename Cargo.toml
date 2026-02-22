@@ -9,7 +9,7 @@ toml = "0.8"
 ureq = { version = "2.0", features = ["json"] }
 zip = "0.6"
 tar = "0.4"
-flate2 = "1.0"
+flate2 = "1.1"
 zstd = "0.13"
 anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }
