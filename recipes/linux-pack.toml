@@ -3,67 +3,80 @@
 
 [vars]
 dotnet_10_version = "10.0.101"
+go_version = "1.25.0"
+bin_dir = "~/.local/bin"
 
 [zellij]
 # Terminal multiplexer - https://github.com/zellij-org/zellij
 github = { repo = "zellij-org/zellij", asset = "zellij-x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "zellij"
 
 [microsoft-edit]
 # Terminal-based text editor - https://github.com/microsoft/edit
 # Note: only gnu builds available (no musl)
 github = { repo = "microsoft/edit", asset = "x86_64-linux-gnu.tar.zst" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "edit"
 
 [starship]
 # Cross-shell prompt - https://github.com/starship/starship
 github = { repo = "starship/starship", asset = "x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "starship"
 
 [ripgrep]
 # Fast regex search tool - https://github.com/BurntSushi/ripgrep
 github = { repo = "BurntSushi/ripgrep", asset = "x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "*/rg"
 
 [fd]
 # Fast find alternative - https://github.com/sharkdp/fd
 github = { repo = "sharkdp/fd", asset = "x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "*/fd"
 
 [bat]
 # Cat with syntax highlighting - https://github.com/sharkdp/bat
 github = { repo = "sharkdp/bat", asset = "x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "*/bat"
 
 [fzf]
 # Fuzzy finder - https://github.com/junegunn/fzf
 github = { repo = "junegunn/fzf", asset = "linux_amd64.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "fzf"
 
 [gh]
 # GitHub CLI - https://github.com/cli/cli
 github = { repo = "cli/cli", asset = "linux_amd64.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "*/bin/gh"
+
+[lf]
+# Terminal file manager - https://github.com/gokcehan/lf
+github = { repo = "gokcehan/lf", asset = "lf-linux-amd64.tar.gz" }
+unzip_to = "${bin_dir}"
+files = "lf"
 
 [zoxide]
 # Smarter cd command - https://github.com/ajeetdsouza/zoxide
 github = { repo = "ajeetdsouza/zoxide", asset = "x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "zoxide"
 
 [delta]
 # Git diff viewer - https://github.com/dandavison/delta
 github = { repo = "dandavison/delta", asset = "x86_64-unknown-linux-musl.tar.gz" }
-unzip_to = "./tools"
+unzip_to = "${bin_dir}"
 files = "*/delta"
+
+[go]
+# Go programming language - https://go.dev/dl/
+url = "https://go.dev/dl/go${go_version}.linux-amd64.tar.gz"
+unzip_to = "/usr/local"
 
 [dotnet10]
 # .NET 10 SDK - https://dotnet.microsoft.com/en-us/download/dotnet/10.0
