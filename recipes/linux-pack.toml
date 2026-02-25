@@ -73,6 +73,11 @@ github = { repo = "dandavison/delta", asset = "x86_64-unknown-linux-musl.tar.gz"
 unzip_to = "${bin_dir}"
 files = "*/delta"
 
+[obsidian]
+# Knowledge base / note-taking app - https://obsidian.md
+github = { repo = "obsidianmd/obsidian-releases", asset = "^obsidian-[\\d.]+\\.tar\\.gz$" }
+unzip_to = "/opt/obsidian"
+
 [go]
 # Go programming language - https://go.dev/dl/
 url = "https://go.dev/dl/go${go_version}.linux-amd64.tar.gz"
