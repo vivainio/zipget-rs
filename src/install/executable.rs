@@ -74,9 +74,15 @@ pub fn strip_platform_suffix(name: &str) -> String {
     result
 }
 
-/// Find all executable files in a directory recursively
+/// Find all executable files in a directory recursively (excludes JAR files)
 pub fn find_executables(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut executables = Vec::new();
+
+    fn is_jar(path: &Path) -> bool {
+        path.extension()
+            .map(|ext| ext.eq_ignore_ascii_case("jar"))
+            .unwrap_or(false)
+    }
 
     fn visit_dir(dir: &Path, executables: &mut Vec<PathBuf>) -> Result<()> {
         for entry in fs::read_dir(dir)? {
@@ -85,7 +91,7 @@ pub fn find_executables(dir: &Path) -> Result<Vec<PathBuf>> {
 
             if path.is_dir() {
                 visit_dir(&path, executables)?;
-            } else if is_executable(&path)? {
+            } else if is_executable(&path)? && !is_jar(&path) {
                 executables.push(path);
             }
         }
@@ -94,6 +100,39 @@ pub fn find_executables(dir: &Path) -> Result<Vec<PathBuf>> {
 
     visit_dir(dir, &mut executables)?;
     Ok(executables)
+}
+
+/// Find all JAR files in a directory recursively
+pub fn find_jar_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut jars = Vec::new();
+
+    fn visit_dir(dir: &Path, jars: &mut Vec<PathBuf>) -> Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                visit_dir(&path, jars)?;
+            } else if path
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("jar"))
+                .unwrap_or(false)
+            {
+                jars.push(path);
+            }
+        }
+        Ok(())
+    }
+
+    visit_dir(dir, &mut jars)?;
+    Ok(jars)
+}
+
+/// Check if a path is a JAR file
+pub fn is_jar_file(path: &Path) -> bool {
+    path.extension()
+        .map(|ext| ext.eq_ignore_ascii_case("jar"))
+        .unwrap_or(false)
 }
 
 /// Options for installing a package
@@ -117,11 +156,10 @@ pub struct InstallOptions<'a> {
     pub install_dir: Option<PathBuf>,
 }
 
-/// Install a package (executables) to the system
+/// Install a package (executables or JARs) to the system
 pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
     use crate::archive::utils as archive_utils;
     use crate::download::github;
-    #[cfg(windows)]
     use crate::install::shim;
 
     // Note: --no-shim is silently accepted on Unix since direct installation
@@ -189,16 +227,23 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
         archive_utils::flatten_directory_structure(&temp_path, &dir_name)?;
     }
 
-    // Find executables in extracted content
+    // Find executables and JAR files in extracted content
     let executables = find_executables(&temp_path).context("Failed to find executables")?;
+    let jar_files = find_jar_files(&temp_path).context("Failed to find JAR files")?;
 
-    if executables.is_empty() {
-        return Err(anyhow::anyhow!("No executables found in package"));
+    // Combine all installable files (executables + JARs)
+    let mut installable: Vec<PathBuf> = executables;
+    installable.extend(jar_files);
+
+    if installable.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No executables or JAR files found in package"
+        ));
     }
 
-    // Select which executable to install
-    let exe_to_install = if let Some(exe_name) = opts.executable {
-        executables
+    // Select which file to install
+    let file_to_install = if let Some(exe_name) = opts.executable {
+        installable
             .iter()
             .find(|p| {
                 p.file_name()
@@ -207,19 +252,57 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                     .unwrap_or(false)
             })
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Executable '{}' not found", exe_name))?
-    } else if executables.len() == 1 {
-        executables[0].clone()
+            .ok_or_else(|| anyhow::anyhow!("File '{}' not found", exe_name))?
+    } else if installable.len() == 1 {
+        installable[0].clone()
     } else {
         return Err(anyhow::anyhow!(
-            "Multiple executables found, please specify which one with --executable"
+            "Multiple installable files found, please specify which one with --executable"
         ));
     };
 
+    // Check if we're installing a JAR file
+    let is_jar = is_jar_file(&file_to_install);
+
     #[cfg(windows)]
     {
-        if opts.no_shim {
-            // Copy to specified directory or ~/.local/bin
+        // JAR files always use shim (launcher script)
+        if is_jar {
+            // Determine launcher name (strip .jar extension)
+            let launcher_name = opts.install_as.map(String::from).unwrap_or_else(|| {
+                file_to_install
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("app")
+                    .to_string()
+            });
+
+            // Copy JAR to permanent location: ~/.local/programs/{name}/
+            let programs_dir = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .join(".local")
+                .join("programs")
+                .join(&launcher_name);
+            fs::create_dir_all(&programs_dir).context("Failed to create programs directory")?;
+
+            let jar_filename = file_to_install
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine JAR filename"))?;
+            let permanent_jar_path = programs_dir.join(jar_filename);
+            fs::copy(&file_to_install, &permanent_jar_path)
+                .context("Failed to copy JAR to programs directory")?;
+
+            println!("Installed JAR to: {}", permanent_jar_path.display());
+
+            shim::create_shim(
+                permanent_jar_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                Some(&launcher_name),
+                None,
+            )?;
+        } else if opts.no_shim {
+            // Copy executable to specified directory or ~/.local/bin
             let local_bin = if let Some(ref dir) = opts.install_dir {
                 dir.clone()
             } else {
@@ -231,8 +314,7 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
 
             fs::create_dir_all(&local_bin).context("Failed to create install directory")?;
 
-            // Determine the install filename
-            let original_filename = exe_to_install
+            let original_filename = file_to_install
                 .file_name()
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
@@ -245,13 +327,13 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
 
             let install_path = local_bin.join(&install_filename);
 
-            fs::copy(&exe_to_install, &install_path)
+            fs::copy(&file_to_install, &install_path)
                 .context("Failed to copy executable to ~/.local/bin")?;
 
             println!("Installed to: {}", install_path.display());
         } else {
-            // Use shim installation
-            let exe_path = exe_to_install
+            // Use shim installation for executables
+            let exe_path = file_to_install
                 .canonicalize()
                 .context("Failed to get absolute path of executable")?;
 
@@ -263,7 +345,7 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                 None,
             )?;
 
-            println!("Shim created for: {}", exe_to_install.display());
+            println!("Shim created for: {}", file_to_install.display());
         }
     }
 
@@ -271,55 +353,103 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
     {
         use crate::install::utils::is_directory_in_path;
 
-        // On Unix, install to specified directory or ~/.local/bin
-        let local_bin = if let Some(dir) = opts.install_dir {
-            dir
-        } else {
-            dirs::home_dir()
+        // JAR files use shim (launcher script) on Unix too
+        if is_jar {
+            // Determine launcher name (strip .jar extension)
+            let launcher_name = opts.install_as.map(String::from).unwrap_or_else(|| {
+                file_to_install
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("app")
+                    .to_string()
+            });
+
+            // Copy JAR to permanent location: ~/.local/programs/{name}/
+            let programs_dir = dirs::home_dir()
                 .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
                 .join(".local")
-                .join("bin")
-        };
+                .join("programs")
+                .join(&launcher_name);
+            fs::create_dir_all(&programs_dir).context("Failed to create programs directory")?;
 
-        fs::create_dir_all(&local_bin).context("Failed to create install directory")?;
+            let jar_filename = file_to_install
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine JAR filename"))?;
+            let permanent_jar_path = programs_dir.join(jar_filename);
+            fs::copy(&file_to_install, &permanent_jar_path)
+                .context("Failed to copy JAR to programs directory")?;
 
-        // Determine the install filename
-        let original_filename = exe_to_install
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
+            println!("Installed JAR to: {}", permanent_jar_path.display());
 
-        let install_filename = if let Some(name) = opts.install_as {
-            name.to_string()
+            shim::create_shim(
+                permanent_jar_path
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
+                Some(&launcher_name),
+                None,
+            )?;
+
+            let local_bin = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .join(".local")
+                .join("bin");
+
+            if !is_directory_in_path(local_bin.as_path()) {
+                println!(
+                    "Warning: {} is not in your PATH. Add it with: export PATH=\"$PATH:{}\"",
+                    local_bin.display(),
+                    local_bin.display()
+                );
+            }
         } else {
-            strip_platform_suffix(original_filename)
-        };
+            // On Unix, install executables to specified directory or ~/.local/bin
+            let local_bin = if let Some(dir) = opts.install_dir {
+                dir
+            } else {
+                dirs::home_dir()
+                    .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                    .join(".local")
+                    .join("bin")
+            };
 
-        let install_path = local_bin.join(&install_filename);
+            fs::create_dir_all(&local_bin).context("Failed to create install directory")?;
 
-        // Remove existing file first to avoid "Text file busy" error when updating a running executable
-        if install_path.exists() {
-            fs::remove_file(&install_path).context("Failed to remove existing executable")?;
-        }
+            let original_filename = file_to_install
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Could not determine executable name"))?;
 
-        fs::copy(&exe_to_install, &install_path)
-            .context("Failed to copy executable to ~/.local/bin")?;
+            let install_filename = if let Some(name) = opts.install_as {
+                name.to_string()
+            } else {
+                strip_platform_suffix(original_filename)
+            };
 
-        // Make executable on Unix
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(0o755);
-        fs::set_permissions(&install_path, perms)
-            .context("Failed to set executable permissions")?;
+            let install_path = local_bin.join(&install_filename);
 
-        println!("Installed to: {}", install_path.display());
+            // Remove existing file first to avoid "Text file busy" error when updating a running executable
+            if install_path.exists() {
+                fs::remove_file(&install_path).context("Failed to remove existing executable")?;
+            }
 
-        // Check if in PATH
-        if !is_directory_in_path(local_bin.as_path()) {
-            println!(
-                "Warning: {} is not in your PATH. Add it with: export PATH=\"$PATH:{}\"",
-                local_bin.display(),
-                local_bin.display()
-            );
+            fs::copy(&file_to_install, &install_path)
+                .context("Failed to copy executable to ~/.local/bin")?;
+
+            // Make executable on Unix
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o755);
+            fs::set_permissions(&install_path, perms)
+                .context("Failed to set executable permissions")?;
+
+            println!("Installed to: {}", install_path.display());
+
+            if !is_directory_in_path(local_bin.as_path()) {
+                println!(
+                    "Warning: {} is not in your PATH. Add it with: export PATH=\"$PATH:{}\"",
+                    local_bin.display(),
+                    local_bin.display()
+                );
+            }
         }
     }
 
