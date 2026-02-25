@@ -41,6 +41,24 @@ pub fn guess_binary_name() -> String {
     }
 }
 
+/// Match an asset name against a pattern using regex.
+///
+/// The pattern is treated as a regex applied case-insensitively against the asset name.
+/// For backwards compatibility, if the pattern is not a valid regex, it falls back
+/// to a case-insensitive substring match.
+pub fn match_asset_name(asset_name: &str, pattern: &str) -> bool {
+    match regex::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+    {
+        Ok(re) => re.is_match(asset_name),
+        Err(_) => {
+            // Fallback to substring match for backwards compatibility
+            asset_name.to_lowercase().contains(&pattern.to_lowercase())
+        }
+    }
+}
+
 /// Check if a string looks like a version number (e.g., "1.2.3", "v2.0.1-alpha")
 pub fn is_version_like(part: &str) -> bool {
     // Check for common version patterns
@@ -186,5 +204,41 @@ mod tests {
         assert!(!is_version_like("1")); // No dot
         assert!(!is_version_like("1.")); // No digit after dot
         assert!(!is_version_like(".1.2")); // Doesn't start with digit
+    }
+
+    #[test]
+    fn test_match_asset_name_regex() {
+        // Exact regex match
+        assert!(match_asset_name(
+            "obsidian-1.11.7.tar.gz",
+            r"^obsidian-[\d.]+\.tar\.gz$"
+        ));
+        // Should NOT match arm64 variant
+        assert!(!match_asset_name(
+            "obsidian-1.11.7-arm64.tar.gz",
+            r"^obsidian-[\d.]+\.tar\.gz$"
+        ));
+    }
+
+    #[test]
+    fn test_match_asset_name_case_insensitive() {
+        assert!(match_asset_name("Tool-Linux-AMD64.tar.gz", "linux-amd64"));
+    }
+
+    #[test]
+    fn test_match_asset_name_substring_fallback() {
+        // Invalid regex falls back to substring match
+        // "tool(((" is not valid regex, but "tool(((" is a substring of "tool(((-linux"
+        assert!(match_asset_name("tool(((-linux.tar.gz", "tool((("));
+        assert!(!match_asset_name("other.tar.gz", "tool((("));
+    }
+
+    #[test]
+    fn test_match_asset_name_simple_pattern() {
+        // Simple string is valid regex and matches as substring
+        assert!(match_asset_name(
+            "ripgrep-x86_64-unknown-linux-musl.tar.gz",
+            "x86_64-unknown-linux-musl"
+        ));
     }
 }

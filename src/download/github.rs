@@ -2,7 +2,7 @@ use crate::cache::get_cache_dir;
 use crate::crypto::compute_sha256_from_bytes;
 use crate::download::http;
 use crate::models::{GitHubAsset, GitHubRelease};
-use crate::utils::get_filename_from_url;
+use crate::utils::{get_filename_from_url, match_asset_name};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -60,16 +60,11 @@ pub fn fetch_github_release(
 
     println!("Found release: {} ({})", release.name, release.tag_name);
 
-    // Find the matching asset (case-insensitive)
+    // Find the matching asset (regex, case-insensitive)
     let asset = release
         .assets
         .iter()
-        .find(|asset| {
-            asset
-                .name
-                .to_lowercase()
-                .contains(&binary_name.to_lowercase())
-        })
+        .find(|asset| match_asset_name(&asset.name, &binary_name))
         .ok_or_else(|| anyhow::anyhow!("Binary '{}' not found in release assets", binary_name))?;
 
     println!("Found asset: {} ({} bytes)", asset.name, asset.size);

@@ -1128,16 +1128,11 @@ fn get_github_release_url(repo: &str, asset_name: &str, tag: Option<&str>) -> Re
         .into_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
 
-    // Find the matching asset (case-insensitive)
+    // Find the matching asset (regex, case-insensitive)
     let asset = release
         .assets
         .iter()
-        .find(|asset| {
-            asset
-                .name
-                .to_lowercase()
-                .contains(&asset_name.to_lowercase())
-        })
+        .find(|asset| crate::utils::match_asset_name(&asset.name, asset_name))
         .ok_or_else(|| anyhow::anyhow!("Asset '{}' not found in release assets", asset_name))?;
 
     Ok(asset.browser_download_url.clone())

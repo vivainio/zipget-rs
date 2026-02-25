@@ -248,7 +248,7 @@ Each section represents a download item and can have:
 - **url**: Direct URL to download from (supports HTTP/HTTPS, S3 URLs, and local file paths starting with `/` or `.`)
 - **github**: GitHub release specification (inline table format)
   - **repo**: Repository in "owner/repo" format
-  - **asset**: Name pattern to match in release assets (optional, auto-detected if not specified)
+  - **asset**: Regex pattern to match release asset names (case-insensitive; optional, auto-detected if not specified)
   - **tag**: Specific release tag (optional, defaults to latest)
 - **unzip_to**: Directory where archives should be extracted (supports ZIP and tar.gz files)
 - **save_as**: Path where the downloaded file should be saved
@@ -308,9 +308,16 @@ github = { repo = "sharkdp/bat", tag = "v0.24.0" }
 
 ### Manual Asset Selection (Optional)
 
+The `asset` field is a regex pattern (case-insensitive) matched against release asset names:
+
 ```toml
 [bat]
+# Simple substring match (still works — valid regex)
 github = { repo = "sharkdp/bat", asset = "windows-x86_64", tag = "v0.24.0" }
+
+[obsidian]
+# Regex to select amd64 tarball, excluding arm64 variant
+github = { repo = "obsidianmd/obsidian-releases", asset = "^obsidian-[\\d.]+\\.tar\\.gz$" }
 ```
 
 ### Version Upgrading
@@ -346,7 +353,7 @@ When `files` is specified, the directory structure is flattened — files are ex
 [ripgrep]
 # Archive contains: ripgrep-15.1.0-x86_64-unknown-linux-musl/rg
 # Result: ./tools/rg (flattened, not ./tools/ripgrep-15.1.0-.../rg)
-github = { repo = "BurntSushi/ripgrep", asset = "*x86_64-unknown-linux-musl*" }
+github = { repo = "BurntSushi/ripgrep", asset = "x86_64-unknown-linux-musl" }
 unzip_to = "./tools"
 files = "*/rg"
 
