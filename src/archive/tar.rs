@@ -19,6 +19,19 @@ pub fn extract_tar_gz(
     extract_tar_from_reader(decoder, extract_to, file_pattern, "tar.gz")
 }
 
+/// Extract TAR.XZ archive (LZMA2/XZ compression), returns list of extracted file paths
+pub fn extract_tar_xz(
+    tar_path: &Path,
+    extract_to: &str,
+    file_pattern: Option<&str>,
+) -> Result<Vec<PathBuf>> {
+    let file = fs::File::open(tar_path)
+        .with_context(|| format!("Failed to open tar.xz file: {}", tar_path.display()))?;
+
+    let decoder = xz2::read::XzDecoder::new(file);
+    extract_tar_from_reader(decoder, extract_to, file_pattern, "tar.xz")
+}
+
 /// Extract TAR.ZST archive (Zstandard compression), returns list of extracted file paths
 pub fn extract_tar_zst(
     tar_path: &Path,

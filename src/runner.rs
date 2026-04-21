@@ -150,9 +150,11 @@ pub fn fetch_direct_url(
             let _ = tar::extract_tar_gz(&local_path, extract_dir, files)?;
         } else if filename.ends_with(".tar.zst") {
             let _ = tar::extract_tar_zst(&local_path, extract_dir, files)?;
+        } else if filename.ends_with(".tar.xz") || filename.ends_with(".txz") {
+            let _ = tar::extract_tar_xz(&local_path, extract_dir, files)?;
         } else {
             return Err(anyhow::anyhow!(
-                "Cannot extract '{}': not a supported archive format (zip, tar.gz, tar.zst)",
+                "Cannot extract '{}': not a supported archive format (zip, tar.gz, tar.zst, tar.xz)",
                 filename
             ));
         }

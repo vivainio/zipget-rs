@@ -131,6 +131,8 @@ fn extract_archive_with_options(
         let _ = tar::extract_tar_gz(file_path, extract_to, files_pattern)?;
     } else if original_filename.ends_with(".tar.zst") {
         let _ = tar::extract_tar_zst(file_path, extract_to, files_pattern)?;
+    } else if original_filename.ends_with(".tar.xz") || original_filename.ends_with(".txz") {
+        let _ = tar::extract_tar_xz(file_path, extract_to, files_pattern)?;
     } else {
         // Not an archive - assume it's a direct binary and copy it to the extraction directory
         let dest_path = Path::new(extract_to).join(original_filename);
@@ -213,6 +215,7 @@ pub fn get_best_binary_from_release(
             || name_lower.ends_with(".zip")
             || name_lower.ends_with(".tar.gz")
             || name_lower.ends_with(".tar.zst")
+            || name_lower.ends_with(".tar.xz")
             || name_lower.ends_with(".jar")
         {
             score += 10;
@@ -354,6 +357,7 @@ pub fn find_best_matching_binary(assets: &[GitHubAsset]) -> Option<String> {
             || name_lower.ends_with(".tar.gz")
             || name_lower.ends_with(".tgz")
             || name_lower.ends_with(".tar.zst")
+            || name_lower.ends_with(".tar.xz")
             || name_lower.ends_with(".jar")
         {
             score += 10;

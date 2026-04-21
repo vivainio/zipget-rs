@@ -859,9 +859,11 @@ fn extract_archive(
         tar::extract_tar_gz(file_path, extract_to, file_pattern)
     } else if filename.ends_with(".tar.zst") {
         tar::extract_tar_zst(file_path, extract_to, file_pattern)
+    } else if filename.ends_with(".tar.xz") || filename.ends_with(".txz") {
+        tar::extract_tar_xz(file_path, extract_to, file_pattern)
     } else {
         Err(anyhow::anyhow!(
-            "Cannot extract '{}': not a supported archive format (zip, tar.gz, tar.zst). \
+            "Cannot extract '{}': not a supported archive format (zip, tar.gz, tar.zst, tar.xz). \
              Remove 'unzip_to' for direct binary downloads.",
             filename
         ))
@@ -1269,6 +1271,9 @@ fn find_best_matching_binary(
             name_lower.ends_with(".zip")
                 || name_lower.ends_with(".tar.gz")
                 || name_lower.ends_with(".tgz")
+                || name_lower.ends_with(".tar.zst")
+                || name_lower.ends_with(".tar.xz")
+                || name_lower.ends_with(".txz")
                 || name_lower.ends_with(".jar")
                 || (!name_lower.contains(".") && asset.size > 1000) // Likely executable
         })
