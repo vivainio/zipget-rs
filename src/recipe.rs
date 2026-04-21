@@ -1314,7 +1314,7 @@ fn find_best_matching_binary(
         .collect();
 
     // Sort by score (highest first)
-    scored_assets.sort_by(|a, b| b.0.cmp(&a.0));
+    scored_assets.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     if let Some((score, asset)) = scored_assets.first()
         && *score > 0
