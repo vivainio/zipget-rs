@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "zipget"
+description = "Download and extract archives from GitHub releases, URLs, and S3 via recipes"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+
+[tool.maturin]
+bindings = "bin"
