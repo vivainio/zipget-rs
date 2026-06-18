@@ -7,7 +7,25 @@ name = "zipget"
 description = "Download and extract archives from GitHub releases, URLs, and S3 via recipes"
 requires-python = ">=3.10"
 readme = "README.md"
+license = "MIT"
+authors = [{ name = "Ville Vainio", email = "vivainio@gmail.com" }]
+keywords = ["github", "download", "archive", "release", "recipe", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Archiving :: Packaging",
+    "Topic :: Utilities",
+]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/vivainio/zipget-rs"
+Repository = "https://github.com/vivainio/zipget-rs"
+Issues = "https://github.com/vivainio/zipget-rs/issues"
 
 [tool.maturin]
 bindings = "bin"
