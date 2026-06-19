@@ -1,14 +1,16 @@
 use crate::cache::get_cache_dir;
 use crate::crypto::compute_sha256_from_bytes;
-use crate::download::http;
+use crate::download::auth;
 use crate::models::{GitHubAsset, GitHubRelease};
 use crate::utils::{get_filename_from_url, match_asset_name};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-/// Fetch GitHub release info from API with optional token authentication
-fn fetch_release_info(repo: &str, tag: Option<&str>) -> Result<GitHubRelease> {
+/// Fetch GitHub release info from the API, authenticating against private
+/// repos when needed. Returns the release plus the token that authorized it
+/// (`None` for public repos), so asset downloads can reuse the same credential.
+fn fetch_release_info(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, Option<String>)> {
     let api_url = if let Some(tag) = tag {
         format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
     } else {
@@ -17,27 +19,12 @@ fn fetch_release_info(repo: &str, tag: Option<&str>) -> Result<GitHubRelease> {
 
     println!("Fetching release info from: {api_url}");
 
-    let mut request = ureq::get(&api_url).set("User-Agent", "zipget-rs");
+    let (response, token) = auth::github_api_get(&api_url, auth::repo_owner(repo))?;
 
-    // Use GITHUB_TOKEN if available for higher rate limits
-    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
-        request = request.set("Authorization", &format!("Bearer {token}"));
-    }
-
-    let response = request
-        .call()
-        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
-
-    if response.status() != 200 {
-        return Err(anyhow::anyhow!(
-            "GitHub API request failed with status: {}",
-            response.status()
-        ));
-    }
-
-    response
+    let release = response
         .into_json()
-        .with_context(|| "Failed to parse GitHub release JSON")
+        .with_context(|| "Failed to parse GitHub release JSON")?;
+    Ok((release, token))
 }
 
 /// Fetch a GitHub release with the specified parameters
@@ -49,10 +36,10 @@ pub fn fetch_github_release(
     unzip_to: Option<&str>,
     files_pattern: Option<&str>,
 ) -> Result<()> {
-    let (release, binary_name) = if let Some(name) = binary_name {
+    let (release, binary_name, token) = if let Some(name) = binary_name {
         // User specified binary name, fetch release separately
-        let release = fetch_release_info(repo, tag)?;
-        (release, name.to_string())
+        let (release, token) = fetch_release_info(repo, tag)?;
+        (release, name.to_string(), token)
     } else {
         println!("No binary specified for {repo}, analyzing available assets...");
         get_best_binary_from_release(repo, tag)?
@@ -82,9 +69,14 @@ pub fn fetch_github_release(
         println!("Found cached file: {}", cached_file_path.display());
         cached_file_path
     } else {
-        // Download the file
+        // Download the file (authenticated via the asset API for private repos)
         println!("Downloading: {download_url}");
-        http::download_file(download_url, &cached_file_path, None)?;
+        auth::download_github_asset(
+            &asset.url,
+            download_url,
+            token.as_deref(),
+            &cached_file_path,
+        )?;
         cached_file_path
     };
 
@@ -161,8 +153,8 @@ fn extract_archive_with_options(
 pub fn get_best_binary_from_release(
     repo: &str,
     tag: Option<&str>,
-) -> Result<(GitHubRelease, String)> {
-    let release = fetch_release_info(repo, tag)?;
+) -> Result<(GitHubRelease, String, Option<String>)> {
+    let (release, token) = fetch_release_info(repo, tag)?;
 
     // Simple heuristic to find best binary for current platform
     let os = std::env::consts::OS;
@@ -270,7 +262,7 @@ pub fn get_best_binary_from_release(
         asset.name, best_score
     );
     let asset_name = asset.name.clone();
-    Ok((release, asset_name))
+    Ok((release, asset_name, token))
 }
 
 /// Find the best matching binary asset from GitHub release assets
@@ -390,6 +382,7 @@ mod tests {
         GitHubAsset {
             name: name.to_string(),
             browser_download_url: format!("https://example.com/{name}"),
+            url: format!("https://api.github.com/repos/x/y/releases/assets/{name}"),
             size,
         }
     }

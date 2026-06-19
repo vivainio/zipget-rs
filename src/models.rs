@@ -210,6 +210,9 @@ pub struct GitHubRelease {
 pub struct GitHubAsset {
     pub name: String,
     pub browser_download_url: String,
+    /// GitHub API URL for the asset (used for authenticated/private downloads).
+    #[serde(default)]
+    pub url: String,
     pub size: u64,
 }
 

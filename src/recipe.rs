@@ -1009,17 +1009,10 @@ pub fn process_fetch_item_for_lock(
 fn get_latest_github_tag(repo: &str) -> Result<String> {
     let api_url = format!("https://api.github.com/repos/{repo}/releases/latest");
 
-    let response = ureq::get(&api_url)
-        .set("User-Agent", "zipget-rs")
-        .call()
-        .with_context(|| format!("Failed to fetch latest release for {repo}"))?;
-
-    if response.status() != 200 {
-        return Err(anyhow::anyhow!(
-            "GitHub API request failed with status: {}",
-            response.status()
-        ));
-    }
+    let (response, _token) = crate::download::auth::github_api_get(
+        &api_url,
+        crate::download::auth::repo_owner(repo),
+    )?;
 
     let release: GitHubRelease = response
         .into_json()
@@ -1114,17 +1107,10 @@ fn get_github_release_url(repo: &str, asset_name: &str, tag: Option<&str>) -> Re
         format!("https://api.github.com/repos/{repo}/releases/latest")
     };
 
-    let response = ureq::get(&api_url)
-        .set("User-Agent", "zipget-rs")
-        .call()
-        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
-
-    if response.status() != 200 {
-        return Err(anyhow::anyhow!(
-            "GitHub API request failed with status: {}",
-            response.status()
-        ));
-    }
+    let (response, _token) = crate::download::auth::github_api_get(
+        &api_url,
+        crate::download::auth::repo_owner(repo),
+    )?;
 
     let release: GitHubRelease = response
         .into_json()
@@ -1154,17 +1140,10 @@ fn get_best_binary_from_release(
 
     println!("Analyzing available binaries from: {api_url}");
 
-    let response = ureq::get(&api_url)
-        .set("User-Agent", "zipget-rs")
-        .call()
-        .with_context(|| format!("Failed to fetch release info for {repo}"))?;
-
-    if response.status() != 200 {
-        return Err(anyhow::anyhow!(
-            "GitHub API request failed with status: {}",
-            response.status()
-        ));
-    }
+    let (response, _token) = crate::download::auth::github_api_get(
+        &api_url,
+        crate::download::auth::repo_owner(repo),
+    )?;
 
     let release: GitHubRelease = response
         .into_json()

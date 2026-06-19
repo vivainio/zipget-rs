@@ -47,6 +47,11 @@ fn download_http_file(url: &str, path: &Path) -> Result<()> {
         ));
     }
 
+    write_response_to_file(response, path)
+}
+
+/// Stream a ureq response body to `path` atomically (temp file + rename).
+pub fn write_response_to_file(response: ureq::Response, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
