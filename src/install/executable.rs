@@ -334,20 +334,42 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
 
             println!("Installed to: {}", install_path.display());
         } else {
-            // Use shim installation for executables
-            let exe_path = file_to_install
-                .canonicalize()
-                .context("Failed to get absolute path of executable")?;
+            // Use shim installation for executables. Copy the binary to a
+            // permanent location first: the temp extraction dir is removed on
+            // cleanup, so the shim must not point into it.
+            let launcher_name = opts.install_as.map(String::from).unwrap_or_else(|| {
+                file_to_install
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("app")
+                    .to_string()
+            });
+
+            let programs_dir = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
+                .join(".local")
+                .join("programs")
+                .join(&launcher_name);
+            fs::create_dir_all(&programs_dir).context("Failed to create programs directory")?;
+
+            let exe_filename = file_to_install
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("Could not determine executable filename"))?;
+            let permanent_exe_path = programs_dir.join(exe_filename);
+            fs::copy(&file_to_install, &permanent_exe_path)
+                .context("Failed to copy executable to programs directory")?;
+
+            println!("Installed executable to: {}", permanent_exe_path.display());
 
             shim::create_shim(
-                exe_path
+                permanent_exe_path
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-                None,
+                Some(&launcher_name),
                 None,
             )?;
 
-            println!("Shim created for: {}", file_to_install.display());
+            println!("Shim created for: {}", permanent_exe_path.display());
         }
     }
 
