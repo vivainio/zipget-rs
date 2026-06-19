@@ -154,6 +154,8 @@ pub struct InstallOptions<'a> {
     pub no_shim: bool,
     /// Directory to install to (defaults to ~/.local/bin)
     pub install_dir: Option<PathBuf>,
+    /// Java options to bake into the launcher when installing a JAR
+    pub java_opts: Option<&'a str>,
 }
 
 /// Install a package (executables or JARs) to the system
@@ -299,7 +301,7 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
                 Some(&launcher_name),
-                None,
+                opts.java_opts,
             )?;
         } else if opts.no_shim {
             // Copy executable to specified directory or ~/.local/bin
@@ -386,7 +388,7 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
                 Some(&launcher_name),
-                None,
+                opts.java_opts,
             )?;
 
             let local_bin = dirs::home_dir()

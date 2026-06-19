@@ -143,6 +143,9 @@ pub enum Commands {
         /// Install executable directly to ~/.local/bin instead of creating shims
         #[arg(long)]
         no_shim: bool,
+        /// Java options to bake into the launcher when installing a JAR (e.g. "-Xmx512m")
+        #[arg(long, allow_hyphen_values = true)]
+        java_opts: Option<String>,
     },
     /// Create a launcher/shim in ~/.local/bin pointing to an existing executable or JAR file
     Shim {
@@ -152,7 +155,7 @@ pub enum Commands {
         #[arg(short, long)]
         name: Option<String>,
         /// Java options to pass when launching JAR files (e.g., "-Xmx512m")
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         java_opts: Option<String>,
     },
     /// Update zipget to the latest version from GitHub

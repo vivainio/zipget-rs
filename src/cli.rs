@@ -94,9 +94,10 @@ pub fn run() -> Result<()> {
             profile,
             executable,
             no_shim,
+            java_opts,
         } => {
             println!(
-                "Install command: source={source}, binary={binary:?}, tag={tag:?}, files={files:?}, profile={profile:?}, executable={executable:?}, no_shim={no_shim}"
+                "Install command: source={source}, binary={binary:?}, tag={tag:?}, files={files:?}, profile={profile:?}, executable={executable:?}, no_shim={no_shim}, java_opts={java_opts:?}"
             );
             crate::install::executable::install_package(
                 &source,
@@ -107,6 +108,7 @@ pub fn run() -> Result<()> {
                     profile: profile.as_deref(),
                     executable: executable.as_deref(),
                     no_shim,
+                    java_opts: java_opts.as_deref(),
                     ..Default::default()
                 },
             )?;
