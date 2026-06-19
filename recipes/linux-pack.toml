@@ -55,6 +55,12 @@ github = { repo = "cli/cli", asset = "linux_amd64.tar.gz" }
 unzip_to = "${bin_dir}"
 files = "*/bin/gh"
 
+[yazi]
+# Terminal file manager - https://github.com/sxyazi/yazi
+github = { repo = "sxyazi/yazi", asset = "yazi-x86_64-unknown-linux-musl.zip" }
+unzip_to = "${bin_dir}"
+files = "*/yazi"
+
 [lf]
 # Terminal file manager - https://github.com/gokcehan/lf
 github = { repo = "gokcehan/lf", asset = "lf-linux-amd64.tar.gz" }
