@@ -2,6 +2,27 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Directory where an installed program's payload (binary or JAR) is stored.
+/// The launcher/shim that goes on PATH lives separately in ~/.local/bin.
+///
+/// On Windows this is the idiomatic per-user programs root
+/// `%LOCALAPPDATA%\Programs\{name}` (the same place VS Code and npm tools use),
+/// not a zipget-specific subfolder. On Unix it stays `~/.local/programs/{name}`.
+fn program_install_dir(name: &str) -> Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        let base = dirs::data_local_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine %LOCALAPPDATA% directory"))?;
+        Ok(base.join("Programs").join(name))
+    }
+    #[cfg(not(windows))]
+    {
+        let home = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+        Ok(home.join(".local").join("programs").join(name))
+    }
+}
+
 /// Check if a file is executable
 pub fn is_executable(path: &Path) -> Result<bool> {
     let metadata = fs::metadata(path)?;
@@ -279,12 +300,8 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                     .to_string()
             });
 
-            // Copy JAR to permanent location: ~/.local/programs/{name}/
-            let programs_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-                .join(".local")
-                .join("programs")
-                .join(&launcher_name);
+            // Copy JAR to its permanent program directory (see program_install_dir)
+            let programs_dir = program_install_dir(&launcher_name)?;
             fs::create_dir_all(&programs_dir).context("Failed to create programs directory")?;
 
             let jar_filename = file_to_install
@@ -345,11 +362,7 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                     .to_string()
             });
 
-            let programs_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-                .join(".local")
-                .join("programs")
-                .join(&launcher_name);
+            let programs_dir = program_install_dir(&launcher_name)?;
             fs::create_dir_all(&programs_dir).context("Failed to create programs directory")?;
 
             let exe_filename = file_to_install
@@ -388,12 +401,8 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
                     .to_string()
             });
 
-            // Copy JAR to permanent location: ~/.local/programs/{name}/
-            let programs_dir = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
-                .join(".local")
-                .join("programs")
-                .join(&launcher_name);
+            // Copy JAR to its permanent program directory (see program_install_dir)
+            let programs_dir = program_install_dir(&launcher_name)?;
             fs::create_dir_all(&programs_dir).context("Failed to create programs directory")?;
 
             let jar_filename = file_to_install
