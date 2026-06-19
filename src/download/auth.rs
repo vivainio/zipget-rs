@@ -210,11 +210,7 @@ fn gh_token(user: &str) -> Option<String> {
         return None;
     }
     let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if token.is_empty() {
-        None
-    } else {
-        Some(token)
-    }
+    if token.is_empty() { None } else { Some(token) }
 }
 
 #[cfg(test)]
