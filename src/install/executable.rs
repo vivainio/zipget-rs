@@ -95,6 +95,18 @@ pub fn strip_platform_suffix(name: &str) -> String {
     result
 }
 
+/// Derive the launcher/program name for an installed executable: strip the
+/// platform suffix, then drop the remaining extension (e.g. `.exe`).
+/// e.g. "nspect-windows-x86_64.exe" -> "nspect"
+#[cfg_attr(not(windows), allow(dead_code))]
+fn launcher_name_from_filename(filename: &str) -> String {
+    Path::new(&strip_platform_suffix(filename))
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("app")
+        .to_string()
+}
+
 /// Find all executable files in a directory recursively (excludes JAR files)
 pub fn find_executables(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut executables = Vec::new();
@@ -355,11 +367,11 @@ pub fn install_package(source: &str, opts: InstallOptions<'_>) -> Result<()> {
             // permanent location first: the temp extraction dir is removed on
             // cleanup, so the shim must not point into it.
             let launcher_name = opts.install_as.map(String::from).unwrap_or_else(|| {
-                file_to_install
-                    .file_stem()
+                let original_filename = file_to_install
+                    .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("app")
-                    .to_string()
+                    .unwrap_or("app");
+                launcher_name_from_filename(original_filename)
             });
 
             let programs_dir = program_install_dir(&launcher_name)?;
@@ -666,5 +678,20 @@ mod tests {
         assert_eq!(strip_platform_suffix("tool-x64"), "tool");
         assert_eq!(strip_platform_suffix("app-amd64"), "app");
         assert_eq!(strip_platform_suffix("cli-arm64"), "cli");
+    }
+
+    #[test]
+    fn test_launcher_name_from_filename_strips_platform_and_extension() {
+        assert_eq!(
+            launcher_name_from_filename("nspect-windows-x86_64.exe"),
+            "nspect"
+        );
+        assert_eq!(launcher_name_from_filename("tool-win-amd64.exe"), "tool");
+        assert_eq!(
+            launcher_name_from_filename("bat-x86_64-pc-windows-msvc.exe"),
+            "bat"
+        );
+        assert_eq!(launcher_name_from_filename("zipget.exe"), "zipget");
+        assert_eq!(launcher_name_from_filename("zipget"), "zipget");
     }
 }
