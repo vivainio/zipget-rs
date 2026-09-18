@@ -96,6 +96,9 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             name: zipget-linux-x64-musl
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            name: zipget-linux-arm64-musl
           - target: x86_64-apple-darwin
             os: macos-latest
             name: zipget-macos-x64

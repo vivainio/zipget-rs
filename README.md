@@ -26,6 +26,11 @@ A tool for downloading and extracting files from URLs, GitHub releases, and S3 b
 sudo curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-linux-x64-musl -o /usr/local/bin/zipget && sudo chmod +x /usr/local/bin/zipget
 ```
 
+For Linux ARM64:
+```bash
+sudo curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-linux-arm64-musl -o /usr/local/bin/zipget && sudo chmod +x /usr/local/bin/zipget
+```
+
 For macOS ARM (Apple Silicon):
 ```bash
 curl -fsSL https://github.com/vivainio/zipget-rs/releases/latest/download/zipget-macos-arm64 -o ~/.local/bin/zipget && chmod +x ~/.local/bin/zipget
@@ -178,7 +183,76 @@ zipget recipe my_recipe.toml --upgrade
 
 # Process only specific items by their section names (tags)
 zipget recipe my_recipe.toml ripgrep
+
+# Exclude specific items
+zipget recipe my_recipe.toml --exclude aws-cli
+
+# Override a variable (see Recipe Variables below)
+zipget recipe my_recipe.toml --set goarch=arm64
+
+# Show how variables expand, without downloading anything
+zipget recipe my_recipe.toml --dry
+
+# Pin each entry to its resolved release tag and SHA-256, rewriting the recipe
+zipget recipe my_recipe.toml --lock
 ```
+
+### Recipe Variables
+
+Recipes can declare variables in a `[vars]` section and reference them as
+`${name}` anywhere in a string field, including `url`, `github.asset`,
+`save_as` and `unzip_to`:
+
+```toml
+[vars]
+bin_dir = "~/.local/bin"
+go_version = "1.25.0"
+
+[go]
+url = "https://go.dev/dl/go${go_version}.${os}-${goarch}.tar.gz"
+unzip_to = "${bin_dir}"
+```
+
+These variables are always available, so a recipe can adapt to the host
+without declaring anything:
+
+| Variable | Value |
+| --- | --- |
+| `${os}` | Operating system: `linux`, `macos`, `windows` |
+| `${arch}` | CPU architecture: `x86_64`, `aarch64` |
+| `${home}` | The current user's home directory |
+| `${recipe_dir}` | Directory containing the recipe file |
+
+Values resolve by priority, highest first:
+
+1. `--set key=value` on the command line (repeatable)
+2. The recipe's `[vars]` section
+3. The built-in variables above
+
+So a recipe can pin `${arch}` in `[vars]` to force one architecture, and a
+caller can override any variable at the command line without editing the file.
+
+Two further forms are supported:
+
+- `${env.VAR}` reads an environment variable, and fails if it is not set
+- `$${literal}` escapes the substitution, producing a literal `${literal}`
+
+A leading `~/` expands to the home directory. Referencing an undefined
+variable is an error, so a typo fails the run rather than silently expanding
+to an empty string. Use `--dry` to print the fully expanded recipe before
+downloading:
+
+```bash
+$ zipget recipe linux-tools.toml --dry --set goarch=arm64
+Active variables:
+  arch = aarch64
+  goarch = arm64
+```
+
+Note that `--lock` records the URL *after* substitution, so a lock file
+written on one machine pins that machine's architecture. Lock a recipe that
+uses `${arch}` once per architecture, or keep the locked and templated
+recipes separate.
 
 ### GitHub Command
 
