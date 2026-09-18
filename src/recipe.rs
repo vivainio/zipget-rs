@@ -1235,6 +1235,25 @@ fn find_best_matching_binary(
         _ => vec!["universal", "any"],
     };
 
+    // Patterns that mean an asset is for another architecture or OS. Without
+    // these, a project that names assets in an order the patterns above do not
+    // anticipate (microsoft/edit ships "x86_64-linux-gnu") scores every
+    // architecture alike and can hand back a binary that cannot run here.
+    let wrong_arch_patterns: &[&str] = match arch {
+        "x86_64" => &["aarch64", "arm64", "armv7", "armhf", "i386", "i686"],
+        "aarch64" => &["x86_64", "amd64", "i386", "i686"],
+        _ => &[],
+    };
+
+    let wrong_os_patterns: &[&str] = match os {
+        "linux" => &[
+            "windows", "win32", "win64", "darwin", "macos", "apple", "android",
+        ],
+        "windows" => &["linux", "darwin", "macos", "apple", "android"],
+        "macos" => &["linux", "windows", "win32", "win64", "android"],
+        _ => &[],
+    };
+
     // Score each asset based on pattern matches
     let mut scored_assets: Vec<(i32, &GitHubAsset)> = assets
         .iter()
@@ -1276,18 +1295,36 @@ fn find_best_matching_binary(
                 score += 10;
             }
 
+            // Prefer musl for portability on Linux. Without this a project
+            // publishing both libc variants scores them identically, leaving
+            // the choice to the order GitHub happens to list assets in.
+            if os == "linux" && name_lower.contains("musl") {
+                score += 25;
+            }
+
             // Prefer smaller files (likely stripped binaries)
             if asset.size < 50_000_000 {
                 // Less than 50MB
                 score += 5;
             }
 
+            // Penalty for wrong architecture
+            if wrong_arch_patterns.iter().any(|p| name_lower.contains(p)) {
+                score -= 100;
+            }
+
+            // Penalty for wrong OS
+            if wrong_os_patterns.iter().any(|p| name_lower.contains(p)) {
+                score -= 100;
+            }
+
             (score, asset)
         })
         .collect();
 
-    // Sort by score (highest first)
-    scored_assets.sort_by_key(|b| std::cmp::Reverse(b.0));
+    // Sort by score (highest first), breaking ties on name so that a release
+    // reordering its assets cannot change which one is selected.
+    scored_assets.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
 
     if let Some((score, asset)) = scored_assets.first()
         && *score > 0
@@ -1304,5 +1341,63 @@ fn guess_binary_name() -> String {
         "windows".to_string()
     } else {
         "linux".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_asset(name: &str) -> GitHubAsset {
+        GitHubAsset {
+            name: name.to_string(),
+            browser_download_url: format!("https://example.com/{name}"),
+            url: String::new(),
+            size: 1_000_000,
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn prefers_musl_over_gnu() {
+        // gnu first, which is how sharkdp/fd and dandavison/delta list theirs
+        let assets = vec![
+            make_asset("tool-v1-x86_64-unknown-linux-gnu.tar.gz"),
+            make_asset("tool-v1-x86_64-unknown-linux-musl.tar.gz"),
+        ];
+
+        assert_eq!(
+            find_best_matching_binary(&assets, None).unwrap(),
+            "tool-v1-x86_64-unknown-linux-musl.tar.gz"
+        );
+    }
+
+    #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn rejects_other_architectures() {
+        // microsoft/edit names assets arch-first, so nothing but the generic
+        // "linux" pattern matches and both architectures score alike
+        let assets = vec![
+            make_asset("edit-2.0.0-aarch64-linux-gnu.tar.gz"),
+            make_asset("edit-2.0.0-x86_64-linux-gnu.tar.gz"),
+        ];
+
+        assert_eq!(
+            find_best_matching_binary(&assets, None).unwrap(),
+            "edit-2.0.0-x86_64-linux-gnu.tar.gz"
+        );
+    }
+
+    #[test]
+    fn selection_does_not_depend_on_asset_order() {
+        let mut assets = vec![
+            make_asset("tool-v1-x86_64-unknown-linux-gnu.tar.gz"),
+            make_asset("tool-v1-x86_64-unknown-linux-gnu.tgz"),
+        ];
+
+        let selected = find_best_matching_binary(&assets, None);
+        assets.reverse();
+
+        assert_eq!(selected, find_best_matching_binary(&assets, None));
     }
 }
