@@ -3,6 +3,9 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
+/// An HTTP response with an unread body, as returned by ureq.
+pub type Response = ureq::http::Response<ureq::Body>;
+
 /// Download file from HTTP/HTTPS URL, S3, or copy from local path
 pub fn download_file(url: &str, path: &Path, profile: Option<&str>) -> Result<()> {
     if url.starts_with('/') || url.starts_with('.') {
@@ -51,7 +54,7 @@ fn download_http_file(url: &str, path: &Path) -> Result<()> {
 }
 
 /// Stream a ureq response body to `path` atomically (temp file + rename).
-pub fn write_response_to_file(response: ureq::Response, path: &Path) -> Result<()> {
+pub fn write_response_to_file(response: Response, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
@@ -69,7 +72,7 @@ pub fn write_response_to_file(response: ureq::Response, path: &Path) -> Result<(
     let mut temp_file = fs::File::create(&temp_path)
         .with_context(|| format!("Failed to create temporary file: {}", temp_path.display()))?;
 
-    std::io::copy(&mut response.into_reader(), &mut temp_file).with_context(|| {
+    std::io::copy(&mut response.into_body().into_reader(), &mut temp_file).with_context(|| {
         // Clean up temporary file on failure
         let _ = fs::remove_file(&temp_path);
         format!("Failed to write to temporary file: {}", temp_path.display())
