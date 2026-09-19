@@ -54,7 +54,8 @@ pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
             .call()
             .with_context(|| format!("Failed to fetch recipe from: {file_path}"))?;
         response
-            .into_string()
+            .into_body()
+            .read_to_string()
             .with_context(|| format!("Failed to read recipe content from: {file_path}"))?
     } else {
         fs::read_to_string(file_path)
@@ -1013,7 +1014,8 @@ fn get_latest_github_tag(repo: &str) -> Result<String> {
         crate::download::auth::github_api_get(&api_url, crate::download::auth::repo_owner(repo))?;
 
     let release: GitHubRelease = response
-        .into_json()
+        .into_body()
+        .read_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
 
     Ok(release.tag_name)
@@ -1109,7 +1111,8 @@ fn get_github_release_url(repo: &str, asset_name: &str, tag: Option<&str>) -> Re
         crate::download::auth::github_api_get(&api_url, crate::download::auth::repo_owner(repo))?;
 
     let release: GitHubRelease = response
-        .into_json()
+        .into_body()
+        .read_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
 
     // Find the matching asset (regex, case-insensitive)
@@ -1140,7 +1143,8 @@ fn get_best_binary_from_release(
         crate::download::auth::github_api_get(&api_url, crate::download::auth::repo_owner(repo))?;
 
     let release: GitHubRelease = response
-        .into_json()
+        .into_body()
+        .read_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
 
     println!(

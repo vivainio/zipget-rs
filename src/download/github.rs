@@ -22,7 +22,8 @@ fn fetch_release_info(repo: &str, tag: Option<&str>) -> Result<(GitHubRelease, O
     let (response, token) = auth::github_api_get(&api_url, auth::repo_owner(repo))?;
 
     let release = response
-        .into_json()
+        .into_body()
+        .read_json()
         .with_context(|| "Failed to parse GitHub release JSON")?;
     Ok((release, token))
 }
