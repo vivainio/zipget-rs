@@ -15,6 +15,35 @@ pub fn get_filename_from_url(url: &str) -> String {
     }
 }
 
+/// Asset-name markers that identify a macOS build.
+const MACOS_MARKERS: &[&str] = &["darwin", "macos", "osx", "apple"];
+
+/// Score adjustment for a macOS release asset, on top of the generic scoring.
+///
+/// Returns `(bonus, runs_via_rosetta)`. Apple Silicon prefers a native arm64
+/// build, then a universal binary, then an Intel build (which Rosetta 2 can
+/// run, so callers must not apply their wrong-architecture penalty to it).
+/// Names with no macOS marker get `(0, false)`: an unlabelled `x86_64` asset
+/// could be a Linux binary and must keep the penalty.
+pub fn macos_arch_adjustment(name_lower: &str, arch: &str) -> (i32, bool) {
+    if !MACOS_MARKERS.iter().any(|m| name_lower.contains(m)) {
+        return (0, false);
+    }
+    let has = |patterns: &[&str]| patterns.iter().any(|p| name_lower.contains(p));
+    if has(&["universal"]) {
+        return (40, true);
+    }
+    if arch == "aarch64" {
+        if has(&["arm64", "aarch64"]) {
+            return (50, false);
+        }
+        if has(&["x86_64", "amd64", "x64"]) {
+            return (0, true);
+        }
+    }
+    (0, false)
+}
+
 /// Guess appropriate binary name pattern based on current OS and architecture
 pub fn guess_binary_name() -> String {
     let os = std::env::consts::OS;
@@ -240,5 +269,41 @@ mod tests {
             "ripgrep-x86_64-unknown-linux-musl.tar.gz",
             "x86_64-unknown-linux-musl"
         ));
+    }
+
+    #[test]
+    fn macos_adjustment_ranks_native_universal_then_intel() {
+        assert_eq!(
+            macos_arch_adjustment("tool-darwin-arm64.tar.gz", "aarch64"),
+            (50, false)
+        );
+        assert_eq!(
+            macos_arch_adjustment("tool-macos-universal.tar.gz", "aarch64"),
+            (40, true)
+        );
+        assert_eq!(
+            macos_arch_adjustment("tool-darwin-x86_64.tar.gz", "aarch64"),
+            (0, true)
+        );
+    }
+
+    #[test]
+    fn macos_adjustment_ignores_assets_without_a_macos_marker() {
+        assert_eq!(
+            macos_arch_adjustment("tool-x86_64.tar.gz", "aarch64"),
+            (0, false)
+        );
+        assert_eq!(
+            macos_arch_adjustment("tool-linux-arm64.tar.gz", "aarch64"),
+            (0, false)
+        );
+    }
+
+    #[test]
+    fn macos_adjustment_gives_no_rosetta_to_arm64_on_intel() {
+        assert_eq!(
+            macos_arch_adjustment("tool-darwin-arm64.tar.gz", "x86_64"),
+            (0, false)
+        );
     }
 }
