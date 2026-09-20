@@ -1170,9 +1170,22 @@ fn find_best_matching_binary(
     assets: &[GitHubAsset],
     preferred_ext: Option<&str>,
 ) -> Option<String> {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
+    find_best_matching_binary_for(
+        assets,
+        preferred_ext,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
+}
 
+/// `find_best_matching_binary` for an explicit platform, so selection can be
+/// tested for hosts other than the one running the tests.
+fn find_best_matching_binary_for(
+    assets: &[GitHubAsset],
+    preferred_ext: Option<&str>,
+    os: &str,
+    arch: &str,
+) -> Option<String> {
     // Define priority patterns for different OS/arch combinations
     let patterns = match (os, arch) {
         ("windows", "x86_64") => vec![
@@ -1247,9 +1260,9 @@ fn find_best_matching_binary(
 
     let wrong_os_patterns: &[&str] = match os {
         "linux" => &[
-            "windows", "win32", "win64", "darwin", "macos", "apple", "android",
+            "windows", "win32", "win64", "darwin", "macos", "osx", "apple", "android",
         ],
-        "windows" => &["linux", "darwin", "macos", "apple", "android"],
+        "windows" => &["linux", "darwin", "macos", "osx", "apple", "android"],
         "macos" => &["linux", "windows", "win32", "win64", "android"],
         _ => &[],
     };
@@ -1308,8 +1321,16 @@ fn find_best_matching_binary(
                 score += 5;
             }
 
+            // Prefer native arm64, then universal, over Intel builds on macOS
+            let (mac_bonus, runs_via_rosetta) = if os == "macos" {
+                crate::utils::macos_arch_adjustment(&name_lower, arch)
+            } else {
+                (0, false)
+            };
+            score += mac_bonus;
+
             // Penalty for wrong architecture
-            if wrong_arch_patterns.iter().any(|p| name_lower.contains(p)) {
+            if !runs_via_rosetta && wrong_arch_patterns.iter().any(|p| name_lower.contains(p)) {
                 score -= 100;
             }
 
@@ -1399,5 +1420,73 @@ mod tests {
         assets.reverse();
 
         assert_eq!(selected, find_best_matching_binary(&assets, None));
+    }
+
+    fn select_for(names: &[&str], os: &str, arch: &str) -> Option<String> {
+        let assets: Vec<GitHubAsset> = names.iter().map(|n| make_asset(n)).collect();
+        find_best_matching_binary_for(&assets, None, os, arch)
+    }
+
+    #[test]
+    fn macos_arm64_prefers_native_over_universal_and_intel() {
+        let names = [
+            "tool-darwin-x86_64.tar.gz",
+            "tool-darwin-universal.tar.gz",
+            "tool-darwin-arm64.tar.gz",
+            "tool-linux-arm64.tar.gz",
+        ];
+        assert_eq!(
+            select_for(&names, "macos", "aarch64").unwrap(),
+            "tool-darwin-arm64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn macos_arm64_prefers_universal_over_intel() {
+        let names = ["tool-macos-intel-x64.tar.gz", "tool-macos-universal.tar.gz"];
+        assert_eq!(
+            select_for(&names, "macos", "aarch64").unwrap(),
+            "tool-macos-universal.tar.gz"
+        );
+    }
+
+    #[test]
+    fn macos_arm64_falls_back_to_intel_build_under_rosetta() {
+        let names = [
+            "tool-linux-x86_64.tar.gz",
+            "tool-windows-x86_64.zip",
+            "tool-darwin-x86_64.tar.gz",
+        ];
+        assert_eq!(
+            select_for(&names, "macos", "aarch64").unwrap(),
+            "tool-darwin-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn macos_arm64_rejects_unlabelled_x86_64_asset() {
+        // no macOS marker: could be a Linux binary, so Rosetta does not apply
+        assert_eq!(
+            select_for(&["tool-x86_64.tar.gz"], "macos", "aarch64"),
+            None
+        );
+    }
+
+    #[test]
+    fn macos_intel_never_picks_arm64() {
+        let names = ["tool-darwin-arm64.tar.gz", "tool-darwin-x86_64.tar.gz"];
+        assert_eq!(
+            select_for(&names, "macos", "x86_64").unwrap(),
+            "tool-darwin-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn osx_named_assets_are_wrong_os_elsewhere() {
+        let names = ["tool-osx-x86_64.tar.gz", "tool-linux-x86_64.tar.gz"];
+        assert_eq!(
+            select_for(&names, "linux", "x86_64").unwrap(),
+            "tool-linux-x86_64.tar.gz"
+        );
     }
 }

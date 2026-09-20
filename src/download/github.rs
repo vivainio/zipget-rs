@@ -156,7 +156,6 @@ pub fn get_best_binary_from_release(
 ) -> Result<(GitHubRelease, String, Option<String>)> {
     let (release, token) = fetch_release_info(repo, tag)?;
 
-    // Simple heuristic to find best binary for current platform
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
@@ -165,6 +164,24 @@ pub fn get_best_binary_from_release(
         println!("  - {} ({} bytes)", asset.name, asset.size);
     }
 
+    let (asset, best_score) = select_best_asset(&release.assets, os, arch)
+        .ok_or_else(|| anyhow::anyhow!("No suitable binary found for platform {os}-{arch}"))?;
+
+    println!(
+        "Auto-selected asset: {} (score: {})",
+        asset.name, best_score
+    );
+    let asset_name = asset.name.clone();
+    Ok((release, asset_name, token))
+}
+
+/// Pick the best asset for `os`/`arch`, returning it with its score. Takes the
+/// platform explicitly so selection can be tested for other hosts.
+fn select_best_asset<'a>(
+    assets: &'a [GitHubAsset],
+    os: &str,
+    arch: &str,
+) -> Option<(&'a GitHubAsset, i32)> {
     // Look for platform-specific binaries
     let platform_keywords = match os {
         "windows" => vec!["windows", "win", "pc"],
@@ -188,8 +205,10 @@ pub fn get_best_binary_from_release(
 
     // Define wrong OS patterns for penalties
     let wrong_os_patterns: &[&str] = match os {
-        "linux" => &["windows", "win32", "win64", "darwin", "macos", "apple"],
-        "windows" => &["linux", "darwin", "macos", "apple"],
+        "linux" => &[
+            "windows", "win32", "win64", "darwin", "macos", "osx", "apple",
+        ],
+        "windows" => &["linux", "darwin", "macos", "osx", "apple"],
         "macos" => &["linux", "windows", "win32", "win64"],
         _ => &[],
     };
@@ -198,7 +217,7 @@ pub fn get_best_binary_from_release(
     let mut best_asset: Option<&GitHubAsset> = None;
     let mut best_score: i32 = i32::MIN;
 
-    for asset in &release.assets {
+    for asset in assets {
         let name_lower = asset.name.to_lowercase();
         let mut score: i32 = 0;
 
@@ -232,11 +251,21 @@ pub fn get_best_binary_from_release(
             score += 5;
         }
 
+        // Prefer native arm64, then universal, over Intel builds on macOS
+        let (mac_bonus, runs_via_rosetta) = if os == "macos" {
+            crate::utils::macos_arch_adjustment(&name_lower, arch)
+        } else {
+            (0, false)
+        };
+        score += mac_bonus;
+
         // Penalty for wrong architecture
-        for pattern in wrong_arch_patterns {
-            if name_lower.contains(pattern) {
-                score -= 100;
-                break;
+        if !runs_via_rosetta {
+            for pattern in wrong_arch_patterns {
+                if name_lower.contains(pattern) {
+                    score -= 100;
+                    break;
+                }
             }
         }
 
@@ -248,21 +277,16 @@ pub fn get_best_binary_from_release(
             }
         }
 
-        if score > best_score {
+        // Break ties on name so asset order cannot change the selection
+        if score > best_score
+            || (score == best_score && best_asset.is_some_and(|best| asset.name < best.name))
+        {
             best_score = score;
             best_asset = Some(asset);
         }
     }
 
-    let asset = best_asset
-        .ok_or_else(|| anyhow::anyhow!("No suitable binary found for platform {os}-{arch}"))?;
-
-    println!(
-        "Auto-selected asset: {} (score: {})",
-        asset.name, best_score
-    );
-    let asset_name = asset.name.clone();
-    Ok((release, asset_name, token))
+    best_asset.map(|asset| (asset, best_score))
 }
 
 /// Find the best matching binary asset from GitHub release assets
@@ -387,6 +411,16 @@ mod tests {
         }
     }
 
+    /// Name of an archive built for the machine running the tests, so tests of
+    /// the host-based selector hold on any OS.
+    fn host_asset_name() -> String {
+        let os = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        format!("tool-{os}-{}.tar.gz", std::env::consts::ARCH)
+    }
+
     #[test]
     fn test_find_best_matching_binary_linux_x64() {
         let assets = vec![
@@ -421,7 +455,7 @@ mod tests {
         let assets = vec![
             make_asset("tool-src.tar.gz", 1000),
             make_asset("tool-source.tar.gz", 1000),
-            make_asset("tool-linux-amd64.tar.gz", 1000),
+            make_asset(&host_asset_name(), 1000),
         ];
 
         let result = find_best_matching_binary(&assets);
@@ -438,7 +472,7 @@ mod tests {
         let assets = vec![
             make_asset("tool-debug.tar.gz", 1000),
             make_asset("tool-symbols.tar.gz", 1000),
-            make_asset("tool-linux-amd64.tar.gz", 1000),
+            make_asset(&host_asset_name(), 1000),
         ];
 
         let result = find_best_matching_binary(&assets);
@@ -468,5 +502,72 @@ mod tests {
 
         let result = find_best_matching_binary(&assets);
         assert!(result.is_some());
+    }
+
+    fn select(names: &[&str], os: &str, arch: &str) -> Option<String> {
+        let assets: Vec<GitHubAsset> = names.iter().map(|n| make_asset(n, 1000)).collect();
+        select_best_asset(&assets, os, arch).map(|(asset, _)| asset.name.clone())
+    }
+
+    #[test]
+    fn macos_arm64_prefers_native_over_universal_and_intel() {
+        let names = [
+            "tool-darwin-x86_64.tar.gz",
+            "tool-darwin-universal.tar.gz",
+            "tool-darwin-arm64.tar.gz",
+            "tool-linux-arm64.tar.gz",
+        ];
+        assert_eq!(
+            select(&names, "macos", "aarch64").unwrap(),
+            "tool-darwin-arm64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn macos_arm64_prefers_universal_over_intel() {
+        let names = ["tool-macos-intel-x64.tar.gz", "tool-macos-universal.tar.gz"];
+        assert_eq!(
+            select(&names, "macos", "aarch64").unwrap(),
+            "tool-macos-universal.tar.gz"
+        );
+    }
+
+    #[test]
+    fn macos_arm64_falls_back_to_intel_build_under_rosetta() {
+        let names = [
+            "tool-linux-x86_64.tar.gz",
+            "tool-windows-x86_64.zip",
+            "tool-darwin-x86_64.tar.gz",
+        ];
+        assert_eq!(
+            select(&names, "macos", "aarch64").unwrap(),
+            "tool-darwin-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn macos_intel_never_picks_arm64() {
+        let names = ["tool-darwin-arm64.tar.gz", "tool-darwin-x86_64.tar.gz"];
+        assert_eq!(
+            select(&names, "macos", "x86_64").unwrap(),
+            "tool-darwin-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn osx_named_assets_are_wrong_os_elsewhere() {
+        let names = ["tool-osx-x86_64.tar.gz", "tool-linux-x86_64.tar.gz"];
+        assert_eq!(
+            select(&names, "linux", "x86_64").unwrap(),
+            "tool-linux-x86_64.tar.gz"
+        );
+    }
+
+    #[test]
+    fn selection_ties_do_not_depend_on_asset_order() {
+        let mut names = ["tool-linux-x86_64.tar.gz", "tool-linux-x86_64.tgz"];
+        let first = select(&names, "linux", "x86_64");
+        names.reverse();
+        assert_eq!(first, select(&names, "linux", "x86_64"));
     }
 }
