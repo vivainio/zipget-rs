@@ -121,7 +121,7 @@ pub enum Commands {
         #[arg(last = true)]
         args: Vec<String>,
     },
-    /// Install a binary to local Programs folder and create a shim (Windows), or directly to ~/.local/bin (--no-shim)
+    /// Install a binary to ~/.local/bin (macOS/Linux always; on Windows a shim is created unless --no-shim is given)
     Install {
         /// Source to download from: URL or GitHub repository (owner/repo format)
         source: String,
@@ -140,7 +140,7 @@ pub enum Commands {
         /// Executable name to install (installs all executables if not specified)
         #[arg(short = 'e', long = "exe")]
         executable: Option<String>,
-        /// Install executable directly to ~/.local/bin instead of creating shims
+        /// Windows only: install executable directly to ~/.local/bin instead of creating a shim (no effect on macOS/Linux)
         #[arg(long)]
         no_shim: bool,
         /// Java options to bake into the launcher when installing a JAR (e.g. "-Xmx512m")

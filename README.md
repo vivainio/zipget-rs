@@ -14,7 +14,7 @@ A tool for downloading and extracting files from URLs, GitHub releases, and S3 b
 - **Version Management**: Automatically upgrade GitHub releases to latest versions
 - **Flexible Output**: Extract to directories and/or save files with custom names
 - **Direct Execution**: Download and run executables directly with the `run` command
-- **Cross-Platform Installation**: Install executables directly to `~/.local/bin` on any platform with `--no-shim`, or use Windows shims
+- **Cross-Platform Installation**: Install executables to `~/.local/bin` on macOS, Linux and Windows (Windows uses shims unless `--no-shim` is given)
 - **Java JAR Support**: Download and create launchers for Java JAR applications
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 
@@ -99,10 +99,10 @@ zipget github sharkdp/bat --unzip-to ./tools
 # Download and run executables directly
 zipget run BurntSushi/ripgrep -- --version
 
-# Install tools with shims (Windows only)
+# Install tools to ~/.local/bin (macOS/Linux copy the binary; Windows creates a shim)
 zipget install google/go-jsonnet
 
-# Install tools directly (cross-platform)
+# Install tools directly on Windows too (skip the shim)
 zipget install google/go-jsonnet --no-shim
 
 # Create launcher for a Java JAR
@@ -116,10 +116,10 @@ zipget shim ./myapp.jar
 Install executables from packages to your local system:
 
 ```bash
-# Install with shims (Windows only) - creates shims in ~/.local/bin
+# Install sharkdp/bat - copies to ~/.local/bin on macOS/Linux, creates a shim on Windows
 zipget install sharkdp/bat
 
-# Install directly to ~/.local/bin (cross-platform)
+# Install directly to ~/.local/bin on every platform, including Windows
 zipget install sharkdp/bat --no-shim
 
 # Install specific executable from multi-binary package
@@ -133,8 +133,9 @@ zipget install https://example.com/tool.zip --no-shim
 ```
 
 **Shims vs Direct Installation:**
-- **Shims (Windows only)**: Creates wrapper executables that can handle different versions and provide additional functionality
-- **Direct Installation (`--no-shim`)**: Copies executables directly to `~/.local/bin`, works on all platforms
+- **macOS and Linux**: Executables are always copied directly to `~/.local/bin`, so `--no-shim` is accepted but changes nothing. Make sure `~/.local/bin` is on your `PATH` (zipget warns if it is not).
+- **Windows**: By default a shim is created in `~/.local/bin` pointing at a copy under the programs folder. `--no-shim` copies the executable to `~/.local/bin` instead.
+- **JAR files**: Always get a launcher script, on every platform.
 
 ### Shim Command
 
