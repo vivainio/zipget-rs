@@ -183,7 +183,7 @@ pub struct InstallOptions<'a> {
     pub executable: Option<&'a str>,
     /// Name to install the binary as (defaults to stripping platform suffix)
     pub install_as: Option<&'a str>,
-    /// Skip shim creation on Windows
+    /// Skip shim creation (Windows only; Unix always installs directly)
     pub no_shim: bool,
     /// Directory to install to (defaults to ~/.local/bin)
     pub install_dir: Option<PathBuf>,
