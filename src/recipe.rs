@@ -735,9 +735,9 @@ pub fn process_fetch_item(
                 .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
         }
 
-        fs::copy(&file_path, save_path)
-            .with_context(|| format!("Failed to copy file to: {}", save_path.display()))?;
-        println!("[{tag}] Saved as: {save_as}");
+        if save_file(&file_path, save_path, tag)? {
+            println!("[{tag}] Saved as: {save_as}");
+        }
         result.saved_file = Some(save_as.clone());
 
         // Set executable permission if requested (Unix only)
@@ -802,6 +802,48 @@ pub fn process_fetch_item(
     }
 
     Ok(result)
+}
+
+/// Copy `src` to `dst`, replacing `dst` even if it is a running executable.
+///
+/// Skips the copy when `dst` already has identical content (a re-run), and
+/// otherwise writes a sibling temp file and renames it into place, since
+/// overwriting a running binary in place fails ("Text file busy" on Linux,
+/// access denied on Windows). Returns whether `dst` was written.
+fn save_file(src: &Path, dst: &Path, tag: &str) -> Result<bool> {
+    if dst.is_file() && compute_sha256(src)? == compute_sha256(dst)? {
+        println!("[{tag}] Already up to date: {}", dst.display());
+        return Ok(false);
+    }
+
+    let name = dst
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("Invalid destination file name")?;
+    let tmp = dst.with_file_name(format!(".{name}.zipget-new"));
+    fs::copy(src, &tmp).with_context(|| format!("Failed to copy file to: {}", tmp.display()))?;
+
+    // Windows can't replace a running .exe but can rename it aside.
+    #[cfg(windows)]
+    if dst.exists() {
+        let old = dst.with_file_name(format!("{name}.old"));
+        let _ = fs::remove_file(&old);
+        if let Err(e) = fs::rename(dst, &old) {
+            let _ = fs::remove_file(&tmp);
+            return Err(anyhow::Error::new(e).context(format!(
+                "Failed to move existing file aside: {}",
+                dst.display()
+            )));
+        }
+    }
+
+    if let Err(e) = fs::rename(&tmp, dst) {
+        let _ = fs::remove_file(&tmp);
+        return Err(
+            anyhow::Error::new(e).context(format!("Failed to replace file: {}", dst.display()))
+        );
+    }
+    Ok(true)
 }
 
 /// Install a downloaded wheel with the given installer.
@@ -1504,6 +1546,20 @@ fn guess_binary_name() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_save_file_replaces_and_skips_identical() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.bin");
+        let dst = dir.path().join("dst.bin");
+        fs::write(&src, "new").unwrap();
+        fs::write(&dst, "old").unwrap();
+
+        assert!(save_file(&src, &dst, "t").unwrap());
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "new");
+        assert!(!save_file(&src, &dst, "t").unwrap());
+        assert!(!dir.path().join(".dst.bin.zipget-new").exists());
+    }
+
     use super::*;
 
     fn make_asset(name: &str) -> GitHubAsset {

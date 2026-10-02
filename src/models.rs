@@ -213,7 +213,10 @@ impl Installer {
         match self {
             Installer::UvTool => ("uv", &["tool", "install", "--force"]),
             Installer::UvPip => ("uv", &["pip", "install"]),
-            Installer::Pip => ("python3", &["-m", "pip", "install"]),
+            Installer::Pip => (
+                if cfg!(windows) { "python" } else { "python3" },
+                &["-m", "pip", "install"],
+            ),
             Installer::Pipx => ("pipx", &["install", "--force"]),
         }
     }
