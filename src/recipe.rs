@@ -3,13 +3,15 @@ use crate::cache::get_cache_dir;
 use crate::crypto::{compute_sha256, compute_sha256_from_bytes, verify_sha256};
 use crate::download::http;
 use crate::models::{
-    FetchItem, GitHubAsset, GitHubFetch, GitHubRelease, LockInfo, LockResult, Recipe, RecipeOptions,
+    FetchItem, GitHubAsset, GitHubFetch, GitHubRelease, Installer, LockInfo, LockResult, Recipe,
+    RecipeOptions,
 };
 use crate::utils::get_filename_from_url;
 use crate::vars::VarContext;
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Check if a path is a URL
 fn is_url(path: &str) -> bool {
@@ -44,6 +46,9 @@ pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
     }
 
     if opts.upgrade {
+        if opts.system_only {
+            bail!("--system-only cannot be combined with --upgrade");
+        }
         return upgrade_recipe(file_path);
     }
 
@@ -89,7 +94,29 @@ pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
 
     if opts.dry {
         // Dry run mode - show expanded values without downloading
+        if !recipe.system_packages.apt.is_empty() {
+            println!(
+                "System packages (apt): {}",
+                recipe.system_packages.apt.join(", ")
+            );
+        }
+        if opts.system_only {
+            return Ok(());
+        }
         return dry_run_recipe(&recipe, opts.tags, opts.exclude, &var_ctx);
+    }
+
+    if opts.system_only && opts.lock {
+        bail!("--system-only cannot be combined with --lock");
+    }
+    if opts.system_only && (!opts.tags.is_empty() || !opts.exclude.is_empty()) {
+        bail!("--system-only cannot be combined with tags or --exclude");
+    }
+    if !opts.lock && opts.tags.is_empty() && opts.exclude.is_empty() {
+        ensure_apt_packages(&recipe.system_packages.apt)?;
+    }
+    if opts.system_only {
+        return Ok(());
     }
 
     if opts.lock {
@@ -106,6 +133,58 @@ pub fn process_recipe(file_path: &str, opts: &RecipeOptions) -> Result<()> {
         // Normal mode - process items
         process_recipe_items(&recipe, opts.tags, opts.exclude, opts.profile, &var_ctx)
     }
+}
+
+fn ensure_apt_packages(packages: &[String]) -> Result<()> {
+    if packages.is_empty() {
+        return Ok(());
+    }
+    if !cfg!(target_os = "linux") {
+        bail!("system_packages.apt is supported only on Linux");
+    }
+    let mut missing = Vec::new();
+    for package in packages {
+        if package.is_empty()
+            || !package
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.'))
+        {
+            bail!("Invalid apt package name: {package:?}");
+        }
+        let output = Command::new("dpkg-query")
+            .args(["-W", "-f=${db:Status-Abbrev}", package])
+            .output()
+            .context("Failed to check installed apt packages")?;
+        if !output.status.success() || !output.stdout.starts_with(b"ii ") {
+            missing.push(package.as_str());
+        }
+    }
+    if missing.is_empty() {
+        println!("All {} apt packages are already installed", packages.len());
+        return Ok(());
+    }
+    println!("Missing apt packages: {}", missing.join(", "));
+    let uid = Command::new("id")
+        .arg("-u")
+        .output()
+        .context("Failed to check effective user ID")?;
+    if !uid.status.success() || uid.stdout != b"0\n" {
+        bail!("Run zipget recipe with sudo to install missing apt packages");
+    }
+    for args in [vec!["update"], {
+        let mut args = vec!["install", "-y", "--no-install-recommends"];
+        args.extend(missing.iter().copied());
+        args
+    }] {
+        let status = Command::new("apt-get")
+            .args(&args)
+            .status()
+            .context("Failed to run apt-get")?;
+        if !status.success() {
+            bail!("apt-get {} failed with {status}", args[0]);
+        }
+    }
+    Ok(())
 }
 
 /// Print available tags from a recipe
@@ -343,6 +422,7 @@ fn substitute_fetch_item(item: &FetchItem, var_ctx: &VarContext) -> Result<Fetch
         profile: item.profile.clone(),
         install_exes: item.install_exes.clone(),
         no_shim: item.no_shim,
+        install: item.install,
         lock: item.lock.clone(),
         executable: item.executable,
     })
@@ -472,6 +552,14 @@ fn process_recipe_for_lock(
 fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
     let mut output = String::new();
 
+    if !recipe.system_packages.apt.is_empty() {
+        output.push_str("[system_packages]\napt = [\n");
+        for package in &recipe.system_packages.apt {
+            output.push_str(&format!("  {package:?},\n"));
+        }
+        output.push_str("]\n\n");
+    }
+
     // Serialize vars section first if present
     if !recipe.vars.is_empty() {
         output.push_str("[vars]\n");
@@ -507,6 +595,10 @@ fn serialize_recipe_with_inline_locks(recipe: &Recipe) -> Result<String> {
 
         if fetch_item.executable == Some(true) {
             output.push_str("executable = true\n");
+        }
+
+        if let Some(installer) = fetch_item.install {
+            output.push_str(&format!("install = \"{}\"\n", installer.as_str()));
         }
 
         // Handle GitHub configuration
@@ -547,6 +639,9 @@ pub fn process_fetch_item(
     global_profile: Option<&str>,
     tag: &str,
 ) -> Result<ProcessResult> {
+    if fetch_item.install.is_some() && fetch_item.install_exes.is_some() {
+        bail!("[{tag}] 'install' cannot be combined with 'install_exes'");
+    }
     let mut result = ProcessResult::default();
     let cache_dir = get_cache_dir()?;
 
@@ -702,7 +797,49 @@ pub fn process_fetch_item(
         )?;
     }
 
+    if let Some(installer) = fetch_item.install {
+        install_wheel(installer, &file_path, &filename, &url_hash, tag)?;
+    }
+
     Ok(result)
+}
+
+/// Install a downloaded wheel with the given installer.
+///
+/// Installers validate the wheel filename, so the hash-prefixed cache name
+/// can't be used; the wheel is copied to a per-URL directory under its
+/// original name.
+fn install_wheel(
+    installer: Installer,
+    cached_file: &Path,
+    filename: &str,
+    url_hash: &str,
+    tag: &str,
+) -> Result<()> {
+    if !filename.ends_with(".whl") {
+        bail!(
+            "install = \"{}\" requires a .whl asset, got '{filename}'",
+            installer.as_str()
+        );
+    }
+    let wheel_dir = get_cache_dir()?.join("wheels").join(url_hash);
+    fs::create_dir_all(&wheel_dir)
+        .with_context(|| format!("Failed to create directory: {}", wheel_dir.display()))?;
+    let wheel_path = wheel_dir.join(filename);
+    fs::copy(cached_file, &wheel_path)
+        .with_context(|| format!("Failed to copy wheel to: {}", wheel_path.display()))?;
+
+    let (program, args) = installer.command();
+    println!("[{tag}] Installing with {}: {filename}", installer.as_str());
+    let status = Command::new(program)
+        .args(args)
+        .arg(&wheel_path)
+        .status()
+        .with_context(|| format!("Failed to run {program} (is it installed and on PATH?)"))?;
+    if !status.success() {
+        bail!("{program} install failed with {status}");
+    }
+    Ok(())
 }
 
 /// Install files matching patterns (executables or JARs)

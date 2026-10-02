@@ -8,9 +8,18 @@ pub struct Recipe {
     /// Variable definitions for substitution
     #[serde(default)]
     pub vars: HashMap<String, String>,
+    /// Ubuntu packages to ensure before downloading recipe items.
+    #[serde(default)]
+    pub system_packages: SystemPackages,
     /// Fetch items (all other sections)
     #[serde(flatten)]
     pub items: HashMap<String, FetchItem>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct SystemPackages {
+    #[serde(default)]
+    pub apt: Vec<String>,
 }
 
 /// Options for processing a recipe
@@ -23,6 +32,7 @@ pub struct RecipeOptions<'a> {
     pub lock: bool,
     pub var_overrides: &'a [String],
     pub dry: bool,
+    pub system_only: bool,
 }
 
 /// Command line arguments
@@ -60,6 +70,9 @@ pub enum Commands {
         /// Show how variables would be expanded without downloading
         #[arg(long)]
         dry: bool,
+        /// Ensure only system packages; do not download recipe items
+        #[arg(long)]
+        system_only: bool,
     },
     /// Fetch the latest release binary from a GitHub repository
     Github {
@@ -171,6 +184,41 @@ pub struct LockInfo {
     pub download_url: Option<String>,
 }
 
+/// How to install a downloaded Python wheel
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Installer {
+    /// `uv tool install --force`
+    UvTool,
+    /// `uv pip install`
+    UvPip,
+    /// `python -m pip install`
+    Pip,
+    /// `pipx install --force`
+    Pipx,
+}
+
+impl Installer {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Installer::UvTool => "uv-tool",
+            Installer::UvPip => "uv-pip",
+            Installer::Pip => "pip",
+            Installer::Pipx => "pipx",
+        }
+    }
+
+    /// Program and leading arguments; the wheel path is appended.
+    pub fn command(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Installer::UvTool => ("uv", &["tool", "install", "--force"]),
+            Installer::UvPip => ("uv", &["pip", "install"]),
+            Installer::Pip => ("python3", &["-m", "pip", "install"]),
+            Installer::Pipx => ("pipx", &["install", "--force"]),
+        }
+    }
+}
+
 /// Recipe item configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FetchItem {
@@ -186,6 +234,8 @@ pub struct FetchItem {
     pub install_exes: Option<Vec<String>>,
     /// Install executable directly without creating shims (defaults to false on Windows)
     pub no_shim: Option<bool>,
+    /// Installer to run on the downloaded Python wheel
+    pub install: Option<Installer>,
     /// Lock information (SHA-256 hash and direct download URL)
     pub lock: Option<LockInfo>,
     /// Set executable permission on extracted files (Unix only)
@@ -344,6 +394,27 @@ github = { repo = "owner/repo" }
         let recipe: Recipe = toml::from_str(toml_str).unwrap();
         assert!(recipe.items.is_empty());
         assert!(recipe.vars.is_empty());
+    }
+
+    #[test]
+    fn test_parse_system_packages_as_separate_section() {
+        let recipe: Recipe = toml::from_str(
+            "[system_packages]\napt = [\"git\", \"curl\"]\n[tool]\nurl = \"https://example.com/tool\"",
+        )
+        .unwrap();
+        assert_eq!(recipe.system_packages.apt, ["git", "curl"]);
+        assert_eq!(recipe.items.len(), 1);
+        assert!(recipe.items.contains_key("tool"));
+    }
+
+    #[test]
+    fn test_parse_install_installer() {
+        let recipe: Recipe = toml::from_str(
+            "[tool]\ngithub = { repo = \"owner/repo\", asset = \".*\\\\.whl\" }\ninstall = \"uv-tool\"",
+        )
+        .unwrap();
+        assert_eq!(recipe.items["tool"].install, Some(Installer::UvTool));
+        assert!(toml::from_str::<Recipe>("[tool]\nurl = \"x\"\ninstall = \"bogus\"").is_err());
     }
 
     #[test]

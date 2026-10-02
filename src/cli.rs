@@ -16,6 +16,7 @@ pub fn run() -> Result<()> {
             lock,
             var_overrides,
             dry,
+            system_only,
         } => {
             let opts = RecipeOptions {
                 tags: &tags,
@@ -25,6 +26,7 @@ pub fn run() -> Result<()> {
                 lock,
                 var_overrides: &var_overrides,
                 dry,
+                system_only,
             };
             crate::recipe::process_recipe(&file, &opts)?;
         }

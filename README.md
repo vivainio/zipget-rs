@@ -332,6 +332,18 @@ Each section represents a download item and can have:
 - **executable**: Set to `true` to add executable permission to extracted files (Unix only)
 - **install_exes**: List of executables or JAR files to install to `~/.local/bin` (supports glob patterns)
 - **no_shim**: Set to `true` to copy executables directly instead of creating shims/launchers
+- **install**: Installer to run on a downloaded Python wheel (`.whl`): `uv-tool` (`uv tool install --force`), `uv-pip` (`uv pip install`), `pip` (`python3 -m pip install`) or `pipx` (`pipx install --force`). Cannot be combined with `install_exes`
+
+### Python wheels from GitHub releases
+
+```toml
+[mytool]
+github = { repo = "owner/repo", asset = "mytool-.*-py3-none-any\\.whl" }
+install = "uv-tool"
+```
+
+Asset auto-detection doesn't understand wheel tags, so set `asset` explicitly
+when a release has several wheels.
 
 ## Java JAR Support
 
@@ -461,3 +473,23 @@ Local file paths (starting with `/` or `.`) are also supported in the `url` fiel
 ## License
 
 MIT License
+
+# System packages in recipes
+
+On Debian and Ubuntu, a recipe can declare apt packages alongside downloaded
+tools:
+
+```toml
+[system_packages]
+apt = ["git", "curl", "build-essential"]
+
+[my-tool]
+github = { repo = "owner/repo", asset = "tool-linux.tar.gz" }
+unzip_to = "~/.local/bin"
+```
+
+Run `sudo "$(command -v zipget)" recipe tools.toml --system-only` to install missing apt
+packages. Zipget checks each package with `dpkg-query` and runs `apt-get update`
+and `apt-get install` only when needed. Then run `zipget recipe tools.toml` as
+the regular user to install the downloaded tools. A regular recipe run also
+checks system packages and reports when sudo is needed.
