@@ -639,9 +639,6 @@ pub fn process_fetch_item(
     global_profile: Option<&str>,
     tag: &str,
 ) -> Result<ProcessResult> {
-    if fetch_item.install.is_some() && fetch_item.install_exes.is_some() {
-        bail!("[{tag}] 'install' cannot be combined with 'install_exes'");
-    }
     let mut result = ProcessResult::default();
     let cache_dir = get_cache_dir()?;
 
@@ -778,7 +775,8 @@ pub fn process_fetch_item(
         result.extracted_files = extracted_files;
     }
 
-    // Install executables/JARs if specified
+    // Install executables/JARs/wheels if specified. `install_exes` selects
+    // files from the extracted tree; `install` alone applies to the download.
     if let Some(install_patterns) = &fetch_item.install_exes {
         let base_dir = fetch_item
             .unzip_to
@@ -792,13 +790,14 @@ pub fn process_fetch_item(
         install_from_patterns(
             base_dir,
             install_patterns,
+            fetch_item.install.unwrap_or(Installer::Auto),
             fetch_item.no_shim.unwrap_or(false),
             tag,
         )?;
-    }
-
-    if let Some(installer) = fetch_item.install {
-        install_wheel(installer, &file_path, &filename, &url_hash, tag)?;
+    } else if let Some(installer) = fetch_item.install {
+        let installer =
+            installer.resolve(Path::new(&filename), fetch_item.no_shim.unwrap_or(false));
+        install_file(installer, &file_path, &filename, tag)?;
     }
 
     Ok(result)
@@ -846,64 +845,119 @@ fn save_file(src: &Path, dst: &Path, tag: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Install a downloaded wheel with the given installer.
+/// Install one file with a concrete (non-`Auto`) installer.
 ///
-/// Installers validate the wheel filename, so the hash-prefixed cache name
-/// can't be used; the wheel is copied to a per-URL directory under its
-/// original name.
-fn install_wheel(
-    installer: Installer,
-    cached_file: &Path,
-    filename: &str,
-    url_hash: &str,
-    tag: &str,
-) -> Result<()> {
-    if !filename.ends_with(".whl") {
-        bail!(
-            "install = \"{}\" requires a .whl asset, got '{filename}'",
-            installer.as_str()
-        );
-    }
-    let wheel_dir = get_cache_dir()?.join("wheels").join(url_hash);
-    fs::create_dir_all(&wheel_dir)
-        .with_context(|| format!("Failed to create directory: {}", wheel_dir.display()))?;
-    let wheel_path = wheel_dir.join(filename);
-    fs::copy(cached_file, &wheel_path)
-        .with_context(|| format!("Failed to copy wheel to: {}", wheel_path.display()))?;
+/// `filename` is the file's real name, which can differ from `path` for
+/// cached downloads (hash-prefixed).
+fn install_file(installer: Installer, path: &Path, filename: &str, tag: &str) -> Result<()> {
+    use crate::install::shim::create_shim;
 
-    let (program, args) = installer.command();
-    println!("[{tag}] Installing with {}: {filename}", installer.as_str());
-    let status = Command::new(program)
-        .args(args)
-        .arg(&wheel_path)
-        .status()
-        .with_context(|| format!("Failed to run {program} (is it installed and on PATH?)"))?;
-    if !status.success() {
-        bail!("{program} install failed with {status}");
+    if let Some((program, args)) = installer.command() {
+        if !filename.ends_with(".whl") {
+            bail!(
+                "install = \"{}\" requires a .whl file, got '{filename}'",
+                installer.as_str()
+            );
+        }
+        // Package installers validate the wheel filename, so stage the file
+        // under its original name.
+        let stage_dir = get_cache_dir()?
+            .join("installers")
+            .join(compute_sha256_from_bytes(path.to_string_lossy().as_bytes()));
+        fs::create_dir_all(&stage_dir)
+            .with_context(|| format!("Failed to create directory: {}", stage_dir.display()))?;
+        let staged = stage_dir.join(filename);
+        fs::copy(path, &staged)
+            .with_context(|| format!("Failed to copy file to: {}", staged.display()))?;
+
+        println!("[{tag}] Installing with {}: {filename}", installer.as_str());
+        let status = Command::new(program)
+            .args(args)
+            .arg(&staged)
+            .status()
+            .with_context(|| format!("Failed to run {program} (is it installed and on PATH?)"))?;
+        if !status.success() {
+            bail!("{program} install failed with {status}");
+        }
+        return Ok(());
+    }
+
+    let abs_path = path
+        .canonicalize()
+        .with_context(|| format!("Failed to get absolute path: {}", path.display()))?;
+    let abs_str = abs_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
+
+    match installer {
+        Installer::Jar => {
+            if !filename.to_ascii_lowercase().ends_with(".jar") {
+                bail!("install = \"jar\" requires a .jar file, got '{filename}'");
+            }
+            create_shim(abs_str, None, None)?;
+            println!("[{tag}] Created JAR launcher for: {filename}");
+        }
+        Installer::Copy => {
+            let local_bin = local_bin_dir()?;
+            let install_name = crate::install::executable::strip_platform_suffix(filename);
+            let install_path = local_bin.join(&install_name);
+
+            // Remove existing file first (avoids "Text file busy" on a running binary)
+            if install_path.exists() {
+                fs::remove_file(&install_path).context("Failed to remove existing file")?;
+            }
+            fs::copy(path, &install_path)
+                .with_context(|| format!("Failed to copy {filename} to ~/.local/bin"))?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&install_path, fs::Permissions::from_mode(0o755))?;
+            }
+            println!("[{tag}] Installed: {}", install_path.display());
+        }
+        Installer::Shim => {
+            let install_name = crate::install::executable::strip_platform_suffix(filename);
+            // Remove existing file first
+            let install_path = local_bin_dir()?.join(&install_name);
+            if install_path.exists() {
+                fs::remove_file(&install_path).context("Failed to remove existing file")?;
+            }
+            create_shim(abs_str, Some(&install_name), None)?;
+            println!("[{tag}] Created shim for: {filename}");
+        }
+        Installer::Auto
+        | Installer::UvTool
+        | Installer::UvPip
+        | Installer::Pip
+        | Installer::Pipx => {
+            unreachable!("handled above or resolved by caller")
+        }
     }
     Ok(())
 }
 
-/// Install files matching patterns (executables or JARs)
-fn install_from_patterns(
-    base_dir: &str,
-    patterns: &[String],
-    no_shim: bool,
-    tag: &str,
-) -> Result<()> {
-    use crate::install::shim::create_shim;
-
-    let base_path = Path::new(base_dir);
-
-    // Get the install directory
-    let local_bin = dirs::home_dir()
+/// `~/.local/bin`, created if missing
+fn local_bin_dir() -> Result<PathBuf> {
+    let dir = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?
         .join(".local")
         .join("bin");
-    fs::create_dir_all(&local_bin).context("Failed to create ~/.local/bin directory")?;
+    fs::create_dir_all(&dir).context("Failed to create ~/.local/bin directory")?;
+    Ok(dir)
+}
+
+/// Install files matching patterns (executables, JARs or wheels)
+fn install_from_patterns(
+    base_dir: &str,
+    patterns: &[String],
+    installer: Installer,
+    no_shim: bool,
+    tag: &str,
+) -> Result<()> {
+    let base_path = Path::new(base_dir);
 
     for pattern in patterns {
-        // Find files matching the pattern
         let matching_files = find_matching_files(base_path, pattern)?;
 
         if matching_files.is_empty() {
@@ -916,65 +970,8 @@ fn install_from_patterns(
                 .file_name()
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| anyhow::anyhow!("Invalid filename"))?;
-
-            let is_jar = file_path
-                .extension()
-                .map(|ext| ext.eq_ignore_ascii_case("jar"))
-                .unwrap_or(false);
-
-            if is_jar {
-                // Create a JAR launcher using the shim command
-                let abs_path = file_path.canonicalize().with_context(|| {
-                    format!("Failed to get absolute path: {}", file_path.display())
-                })?;
-
-                create_shim(
-                    abs_path
-                        .to_str()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-                    None,
-                    None,
-                )?;
-                println!("[{tag}] Created JAR launcher for: {filename}");
-            } else {
-                // Install as regular executable
-                let install_name = crate::install::executable::strip_platform_suffix(filename);
-                let install_path = local_bin.join(&install_name);
-
-                // Remove existing file first
-                if install_path.exists() {
-                    fs::remove_file(&install_path).context("Failed to remove existing file")?;
-                }
-
-                if no_shim {
-                    // Copy the file directly
-                    fs::copy(&file_path, &install_path)
-                        .with_context(|| format!("Failed to copy {} to ~/.local/bin", filename))?;
-
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let perms = fs::Permissions::from_mode(0o755);
-                        fs::set_permissions(&install_path, perms)?;
-                    }
-
-                    println!("[{tag}] Installed: {}", install_path.display());
-                } else {
-                    // Use shim/launcher
-                    let abs_path = file_path.canonicalize().with_context(|| {
-                        format!("Failed to get absolute path: {}", file_path.display())
-                    })?;
-
-                    create_shim(
-                        abs_path
-                            .to_str()
-                            .ok_or_else(|| anyhow::anyhow!("Invalid path"))?,
-                        Some(&install_name),
-                        None,
-                    )?;
-                    println!("[{tag}] Created shim for: {filename}");
-                }
-            }
+            let kind = installer.resolve(&file_path, no_shim);
+            install_file(kind, &file_path, filename, tag)?;
         }
     }
 

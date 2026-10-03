@@ -184,10 +184,19 @@ pub struct LockInfo {
     pub download_url: Option<String>,
 }
 
-/// How to install a downloaded Python wheel
+/// How to install a downloaded or extracted file
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Installer {
+    /// Pick by file type: `.jar` -> jar, `.whl` -> uv-tool, otherwise shim
+    /// (or copy when `no_shim` is set)
+    Auto,
+    /// Copy to the permanent location and create a shim in `~/.local/bin`
+    Shim,
+    /// Copy the executable straight into `~/.local/bin`
+    Copy,
+    /// Create a java launcher for a JAR in `~/.local/bin`
+    Jar,
     /// `uv tool install --force`
     UvTool,
     /// `uv pip install`
@@ -201,6 +210,10 @@ pub enum Installer {
 impl Installer {
     pub fn as_str(self) -> &'static str {
         match self {
+            Installer::Auto => "auto",
+            Installer::Shim => "shim",
+            Installer::Copy => "copy",
+            Installer::Jar => "jar",
             Installer::UvTool => "uv-tool",
             Installer::UvPip => "uv-pip",
             Installer::Pip => "pip",
@@ -208,16 +221,36 @@ impl Installer {
         }
     }
 
-    /// Program and leading arguments; the wheel path is appended.
-    pub fn command(self) -> (&'static str, &'static [&'static str]) {
+    /// Replace `Auto` with the concrete installer for `path`.
+    pub fn resolve(self, path: &std::path::Path, no_shim: bool) -> Installer {
+        if self != Installer::Auto {
+            return self;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        match ext.as_str() {
+            "jar" => Installer::Jar,
+            "whl" => Installer::UvTool,
+            _ if no_shim => Installer::Copy,
+            _ => Installer::Shim,
+        }
+    }
+
+    /// Program and leading arguments for installers that run a command; the
+    /// file path is appended. `None` for installers zipget performs itself.
+    pub fn command(self) -> Option<(&'static str, &'static [&'static str])> {
         match self {
-            Installer::UvTool => ("uv", &["tool", "install", "--force"]),
-            Installer::UvPip => ("uv", &["pip", "install"]),
-            Installer::Pip => (
+            Installer::UvTool => Some(("uv", &["tool", "install", "--force"])),
+            Installer::UvPip => Some(("uv", &["pip", "install"])),
+            Installer::Pip => Some((
                 if cfg!(windows) { "python" } else { "python3" },
                 &["-m", "pip", "install"],
-            ),
-            Installer::Pipx => ("pipx", &["install", "--force"]),
+            )),
+            Installer::Pipx => Some(("pipx", &["install", "--force"])),
+            _ => None,
         }
     }
 }
@@ -237,7 +270,7 @@ pub struct FetchItem {
     pub install_exes: Option<Vec<String>>,
     /// Install executable directly without creating shims (defaults to false on Windows)
     pub no_shim: Option<bool>,
-    /// Installer to run on the downloaded Python wheel
+    /// How to install the file(s): downloaded file, or those matched by `install_exes`
     pub install: Option<Installer>,
     /// Lock information (SHA-256 hash and direct download URL)
     pub lock: Option<LockInfo>,
@@ -408,6 +441,20 @@ github = { repo = "owner/repo" }
         assert_eq!(recipe.system_packages.apt, ["git", "curl"]);
         assert_eq!(recipe.items.len(), 1);
         assert!(recipe.items.contains_key("tool"));
+    }
+
+    #[test]
+    fn test_installer_auto_resolves_by_extension() {
+        use std::path::Path;
+        let r = |f: &str, no_shim| Installer::Auto.resolve(Path::new(f), no_shim);
+        assert_eq!(r("a.JAR", false), Installer::Jar);
+        assert_eq!(r("a-1-py3-none-any.whl", false), Installer::UvTool);
+        assert_eq!(r("tool", false), Installer::Shim);
+        assert_eq!(r("tool", true), Installer::Copy);
+        assert_eq!(
+            Installer::Pip.resolve(Path::new("a.jar"), false),
+            Installer::Pip
+        );
     }
 
     #[test]

@@ -332,7 +332,7 @@ Each section represents a download item and can have:
 - **executable**: Set to `true` to add executable permission to extracted files (Unix only)
 - **install_exes**: List of executables or JAR files to install to `~/.local/bin` (supports glob patterns)
 - **no_shim**: Set to `true` to copy executables directly instead of creating shims/launchers
-- **install**: Installer to run on a downloaded Python wheel (`.whl`): `uv-tool` (`uv tool install --force`), `uv-pip` (`uv pip install`), `pip` (`python -m pip install` (`python3` on Linux/macOS)) or `pipx` (`pipx install --force`). Cannot be combined with `install_exes`
+- **install**: How to install the file(s) — the downloaded file, or those matched by `install_exes`. `auto` (default with `install_exes`) picks by type: `.jar` → `jar`, `.whl` → `uv-tool`, otherwise `shim` (`copy` if `no_shim`). Explicit values: `shim`, `copy`, `jar`, `uv-tool` (`uv tool install --force`), `uv-pip` (`uv pip install`), `pip` (`python -m pip install`, `python3` on Linux/macOS), `pipx` (`pipx install --force`)
 
 ### Python wheels from GitHub releases
 
