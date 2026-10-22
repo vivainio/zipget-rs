@@ -20,20 +20,20 @@ pub fn repo_owner(repo: &str) -> &str {
 
 /// Result of a single HTTP GET attempt.
 enum Attempt {
-    Ok(Box<ureq::Response>),
+    Ok(Box<http::Response>),
     Status(u16),
     Transport,
 }
 
 fn attempt(url: &str, token: Option<&str>) -> Attempt {
-    let mut request = ureq::get(url).set("User-Agent", "zipget-rs");
+    let mut request = ureq::get(url).header("User-Agent", "zipget-rs");
     if let Some(token) = token {
-        request = request.set("Authorization", &format!("Bearer {token}"));
+        request = request.header("Authorization", &format!("Bearer {token}"));
     }
     match request.call() {
         Ok(response) => Attempt::Ok(Box::new(response)),
         // ureq surfaces any >= 400 status as an error rather than a response.
-        Err(ureq::Error::Status(code, _)) => Attempt::Status(code),
+        Err(ureq::Error::StatusCode(code)) => Attempt::Status(code),
         Err(_) => Attempt::Transport,
     }
 }
@@ -41,7 +41,7 @@ fn attempt(url: &str, token: Option<&str>) -> Attempt {
 /// Perform a GitHub API GET, trying credentials only if the unauthenticated
 /// request fails. Returns the successful response together with the token that
 /// worked (`None` if the public/unauthenticated request succeeded).
-pub fn github_api_get(api_url: &str, owner: &str) -> Result<(ureq::Response, Option<String>)> {
+pub fn github_api_get(api_url: &str, owner: &str) -> Result<(http::Response, Option<String>)> {
     let mut last_status: Option<u16> = None;
     let mut tried_tokens: Vec<String> = Vec::new();
 
@@ -115,18 +115,21 @@ pub fn download_github_asset(
     };
 
     // Disable automatic redirect-following so we can drop the auth header
-    // before hitting the signed storage URL.
-    let agent = ureq::builder().redirects(0).build();
+    // before hitting the signed storage URL. With max_redirects(0) ureq hands
+    // back the 3xx itself rather than treating it as an error.
+    let agent = ureq::Agent::config_builder()
+        .max_redirects(0)
+        .build()
+        .new_agent();
     let response = match agent
         .get(asset_api_url)
-        .set("User-Agent", "zipget-rs")
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Accept", "application/octet-stream")
+        .header("User-Agent", "zipget-rs")
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Accept", "application/octet-stream")
         .call()
     {
         Ok(response) => response,
-        Err(ureq::Error::Status(code, response)) if (300..400).contains(&code) => response,
-        Err(ureq::Error::Status(code, _)) => {
+        Err(ureq::Error::StatusCode(code)) => {
             return Err(anyhow::anyhow!(
                 "Failed to download asset from {asset_api_url} (status {code})"
             ));
@@ -137,10 +140,12 @@ pub fn download_github_asset(
         }
     };
 
-    let status = response.status();
+    let status = response.status().as_u16();
     if (300..400).contains(&status) {
         let location = response
-            .header("location")
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
             .ok_or_else(|| {
                 anyhow::anyhow!("GitHub asset response {status} missing Location header")
             })?
