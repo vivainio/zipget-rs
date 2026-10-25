@@ -67,7 +67,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.9'
       - name: Run integration test suite
